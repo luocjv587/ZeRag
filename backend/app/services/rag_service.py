@@ -42,6 +42,10 @@ SYSTEM_PROMPT = """你是一个智能知识库问答助手（ZeRag）。
 如果片段中没有相关信息，请如实告知，不要编造。
 回答要简洁、准确、专业。"""
 
+CHAT_SYSTEM_PROMPT = """你是 ZeRag 的 AI 助手，一个聪明、友好、知识渊博的对话伙伴。
+你可以回答各种问题、帮助分析问题、进行创意写作、代码编写等。
+请根据对话上下文给出准确、有帮助的回答。"""
+
 
 def build_context(chunks: List[Dict[str, Any]], sql_rows: Optional[List[Dict]] = None) -> str:
     parts = []
@@ -387,6 +391,113 @@ def ask(
             logger.warning(f"Cache write failed: {e}")
 
     return result
+
+
+def ask_chat(
+    db: Session,
+    question: str,
+    model: str = "qwen-turbo",
+    user_id: Optional[int] = None,
+    conversation_history: Optional[List[Dict]] = None,
+) -> Dict[str, Any]:
+    """
+    纯 AI 对话模式（无检索）：直接将对话历史 + 当前问题发给 LLM
+    """
+    logger.info(f"Chat ask: {question}")
+
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": CHAT_SYSTEM_PROMPT},
+    ]
+    if conversation_history:
+        for turn in conversation_history[-20:]:
+            role = turn.get("role", "user")
+            content = turn.get("content", "")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": question})
+
+    answer = chat_completion(messages, model=model)
+
+    history = QAHistory(
+        user_id=user_id,
+        question=question,
+        answer=answer,
+        data_source_id=None,
+        retrieved_chunks=[],
+        llm_config={
+            "model": model,
+            "mode": "chat",
+            "has_history": bool(conversation_history),
+        },
+    )
+    db.add(history)
+    db.commit()
+
+    return {
+        "question": question,
+        "answer": answer,
+        "retrieved_chunks": [],
+        "data_source_id": None,
+        "pipeline_log": [],
+    }
+
+
+def ask_chat_stream(
+    db: Session,
+    question: str,
+    model: str = "qwen-turbo",
+    user_id: Optional[int] = None,
+    conversation_history: Optional[List[Dict]] = None,
+) -> Generator[Dict[str, Any], None, None]:
+    """
+    纯 AI 对话模式（流式）：跳过检索，直接流式输出 LLM 回答
+    """
+    logger.info(f"Chat ask_stream: {question}")
+
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": CHAT_SYSTEM_PROMPT},
+    ]
+    if conversation_history:
+        for turn in conversation_history[-20:]:
+            role = turn.get("role", "user")
+            content = turn.get("content", "")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": question})
+
+    # chat 模式直接跳过检索，发一个空的 retrieval_done 表示流程开始
+    yield {"type": "retrieval_done", "chunks": [], "pipeline_log": []}
+
+    full_answer = ""
+    try:
+        for token in chat_completion_stream(messages, model=model):
+            full_answer += token
+            yield {"type": "token", "token": token}
+    except Exception as e:
+        logger.error(f"Chat stream generation failed: {e}")
+        yield {"type": "error", "message": str(e)}
+        return
+
+    yield {"type": "done", "answer": full_answer}
+
+    try:
+        history = QAHistory(
+            user_id=user_id,
+            question=question,
+            answer=full_answer,
+            data_source_id=None,
+            retrieved_chunks=[],
+            llm_config={
+                "model": model,
+                "mode": "chat",
+                "stream": True,
+                "has_history": bool(conversation_history),
+            },
+        )
+        db.add(history)
+        db.commit()
+    except Exception as e:
+        logger.error(f"Failed to save chat history: {e}")
 
 
 def ask_stream(

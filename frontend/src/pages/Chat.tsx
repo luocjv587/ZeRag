@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import type { ChatMessage, DataSource, ConversationTurn } from '../types'
+import type { ChatMessage, DataSource, ConversationTurn, ChatMode } from '../types'
 import ChatMessageItem from '../components/Chat/ChatMessage'
 import { qaService } from '../services/qa'
 import { dataSourceService } from '../services/dataSource'
@@ -10,29 +10,32 @@ const SESSION_KEY = 'zerag_chat_session'
 interface SavedSession {
   messages: Omit<ChatMessage, 'timestamp'>[]
   selectedDsId?: number
+  chatMode?: ChatMode
 }
 
-function loadSession(): { messages: ChatMessage[]; selectedDsId?: number } {
+function loadSession(): { messages: ChatMessage[]; selectedDsId?: number; chatMode: ChatMode } {
   try {
     const raw = sessionStorage.getItem(SESSION_KEY)
-    if (!raw) return { messages: [] }
+    if (!raw) return { messages: [], chatMode: 'rag' }
     const parsed: SavedSession = JSON.parse(raw)
     return {
       messages: parsed.messages.map((m) => ({ ...m, timestamp: new Date() })),
       selectedDsId: parsed.selectedDsId,
+      chatMode: parsed.chatMode ?? 'rag',
     }
   } catch {
-    return { messages: [] }
+    return { messages: [], chatMode: 'rag' }
   }
 }
 
-function saveSession(messages: ChatMessage[], selectedDsId?: number) {
+function saveSession(messages: ChatMessage[], selectedDsId?: number, chatMode: ChatMode = 'rag') {
   try {
     const data: SavedSession = {
       messages: messages
         .filter((m) => !m.loading)
         .map(({ timestamp: _ts, ...rest }) => rest),
       selectedDsId,
+      chatMode,
     }
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(data))
   } catch { /* ignore */ }
@@ -154,6 +157,7 @@ export default function Chat() {
   const [selectedDsId, setSelectedDsId] = useState<number | undefined>(session.selectedDsId)
   const [ragSettings, setRagSettings] = useState<RagSettings>(DEFAULT_SETTINGS)
   const [showSettings, setShowSettings] = useState(false)
+  const [chatMode, setChatMode] = useState<ChatMode>(session.chatMode)
   const bottomRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<(() => void) | null>(null)
   const settingsRef = useRef<HTMLDivElement>(null)
@@ -168,8 +172,8 @@ export default function Chat() {
 
   // 会话持久化：消息变化时保存
   useEffect(() => {
-    saveSession(messages, selectedDsId)
-  }, [messages, selectedDsId])
+    saveSession(messages, selectedDsId, chatMode)
+  }, [messages, selectedDsId, chatMode])
 
   // 点击外部关闭设置面板
   useEffect(() => {
@@ -223,7 +227,8 @@ export default function Chat() {
     const abort = qaService.askStream(
       {
         question,
-        data_source_id: selectedDsId,
+        mode: chatMode,
+        data_source_id: chatMode === 'rag' ? selectedDsId : undefined,
         top_k: ragSettings.top_k,
         enable_rewrite: ragSettings.enable_rewrite,
         enable_hyde: ragSettings.enable_hyde,
@@ -318,8 +323,14 @@ export default function Chat() {
       {/* 顶部栏 */}
       <div className="px-6 py-4 border-b border-apple-gray-200 flex items-center justify-between">
         <div>
-          <h1 className="text-base font-semibold text-apple-black">智能问答</h1>
-          <p className="text-xs text-apple-gray-400 mt-0.5">基于数据源内容进行 AI 问答（支持多轮对话）</p>
+          <h1 className="text-base font-semibold text-apple-black">
+            {chatMode === 'chat' ? 'AI 对话' : '智能问答'}
+          </h1>
+          <p className="text-xs text-apple-gray-400 mt-0.5">
+            {chatMode === 'chat'
+              ? '与 AI 自由对话，无需选择数据源（支持多轮上下文）'
+              : '基于数据源内容进行 AI 问答（支持多轮对话）'}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {messages.length > 0 && (
@@ -331,38 +342,68 @@ export default function Chat() {
               清空对话
             </button>
           )}
-          {/* 数据源选择 */}
-          <select
-            value={selectedDsId ?? ''}
-            onChange={(e) => setSelectedDsId(e.target.value ? Number(e.target.value) : undefined)}
-            className="input-base w-44 text-xs"
-          >
-            <option value="">全部数据源</option>
-            {dataSources.map((ds) => (
-              <option key={ds.id} value={ds.id}>{ds.name}</option>
-            ))}
-          </select>
-          {/* RAG 设置按钮 */}
-          <div className="relative" ref={settingsRef}>
+
+          {/* ── 模式切换 ── */}
+          <div className="flex items-center bg-apple-gray-100 rounded-lg p-0.5">
             <button
-              onClick={() => setShowSettings((v) => !v)}
-              title="RAG 参数设置"
-              className={`btn-ghost px-2.5 py-2 flex items-center gap-1 ${hasCustomSettings ? 'text-blue-500' : ''}`}
+              onClick={() => setChatMode('chat')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                chatMode === 'chat'
+                  ? 'bg-white text-apple-black shadow-sm'
+                  : 'text-apple-gray-400 hover:text-apple-gray-600'
+              }`}
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
-              </svg>
-              {hasCustomSettings && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
+              💬 AI 对话
             </button>
-            {showSettings && (
-              <SettingsPanel
-                settings={ragSettings}
-                onChange={setRagSettings}
-                onClose={() => setShowSettings(false)}
-              />
-            )}
+            <button
+              onClick={() => setChatMode('rag')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                chatMode === 'rag'
+                  ? 'bg-white text-apple-black shadow-sm'
+                  : 'text-apple-gray-400 hover:text-apple-gray-600'
+              }`}
+            >
+              📚 知识库
+            </button>
           </div>
+
+          {/* 数据源选择（仅 RAG 模式） */}
+          {chatMode === 'rag' && (
+            <select
+              value={selectedDsId ?? ''}
+              onChange={(e) => setSelectedDsId(e.target.value ? Number(e.target.value) : undefined)}
+              className="input-base w-44 text-xs"
+            >
+              <option value="">全部数据源</option>
+              {dataSources.map((ds) => (
+                <option key={ds.id} value={ds.id}>{ds.name}</option>
+              ))}
+            </select>
+          )}
+
+          {/* RAG 设置按钮（仅 RAG 模式） */}
+          {chatMode === 'rag' && (
+            <div className="relative" ref={settingsRef}>
+              <button
+                onClick={() => setShowSettings((v) => !v)}
+                title="RAG 参数设置"
+                className={`btn-ghost px-2.5 py-2 flex items-center gap-1 ${hasCustomSettings ? 'text-blue-500' : ''}`}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+                </svg>
+                {hasCustomSettings && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
+              </button>
+              {showSettings && (
+                <SettingsPanel
+                  settings={ragSettings}
+                  onChange={setRagSettings}
+                  onClose={() => setShowSettings(false)}
+                />
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -370,24 +411,30 @@ export default function Chat() {
       <div className="flex-1 overflow-y-auto px-6 py-6">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center">
-            <div className="w-14 h-14 bg-apple-gray-100 rounded-2xl flex items-center justify-center mb-4">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#A0A0A0" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-              </svg>
+            <div className="w-14 h-14 bg-apple-gray-100 rounded-2xl flex items-center justify-center mb-4 text-2xl">
+              {chatMode === 'chat' ? '💬' : '📚'}
             </div>
-            <p className="text-sm font-medium text-apple-gray-500">开始提问</p>
-            <p className="text-xs text-apple-gray-300 mt-1">向已同步的数据源提问，获取 AI 智能回答</p>
+            <p className="text-sm font-medium text-apple-gray-500">
+              {chatMode === 'chat' ? '开始 AI 对话' : '开始提问'}
+            </p>
+            <p className="text-xs text-apple-gray-300 mt-1">
+              {chatMode === 'chat'
+                ? '与 AI 自由聊天，支持写作、代码、分析等各类问题'
+                : '向已同步的数据源提问，获取 AI 智能回答'}
+            </p>
             <p className="text-xs text-apple-gray-300 mt-0.5">支持多轮对话，AI 会记住本次会话的上下文</p>
-            {/* 当前生效的 RAG 参数摘要 */}
-            <div className="mt-4 flex items-center gap-2 text-[10px] text-apple-gray-300">
-              <span className={ragSettings.enable_rewrite ? 'text-green-500' : 'line-through'}>查询改写</span>
-              <span>·</span>
-              <span className={ragSettings.enable_hyde ? 'text-green-500' : 'line-through'}>HyDE</span>
-              <span>·</span>
-              <span className={ragSettings.enable_sql_fallback ? 'text-green-500' : 'line-through'}>SQL兜底</span>
-              <span>·</span>
-              <span>Top-{ragSettings.top_k}</span>
-            </div>
+            {/* RAG 模式显示参数摘要 */}
+            {chatMode === 'rag' && (
+              <div className="mt-4 flex items-center gap-2 text-[10px] text-apple-gray-300">
+                <span className={ragSettings.enable_rewrite ? 'text-green-500' : 'line-through'}>查询改写</span>
+                <span>·</span>
+                <span className={ragSettings.enable_hyde ? 'text-green-500' : 'line-through'}>HyDE</span>
+                <span>·</span>
+                <span className={ragSettings.enable_sql_fallback ? 'text-green-500' : 'line-through'}>SQL兜底</span>
+                <span>·</span>
+                <span>Top-{ragSettings.top_k}</span>
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -414,7 +461,7 @@ export default function Chat() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="输入问题，Enter 发送，Shift+Enter 换行…"
+            placeholder={chatMode === 'chat' ? '和 AI 聊聊吧，Enter 发送，Shift+Enter 换行…' : '输入问题，Enter 发送，Shift+Enter 换行…'}
             rows={1}
             disabled={loading && input === ''}
             className="input-base resize-none flex-1 leading-relaxed"

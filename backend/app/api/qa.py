@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database.connection import get_db
 from app.schemas.qa import AskRequest, AskResponse, QAHistoryResponse
-from app.services.rag_service import ask, ask_stream
+from app.services.rag_service import ask, ask_stream, ask_chat, ask_chat_stream
 from app.models.qa_history import QAHistory
 from app.middleware.auth import get_current_user
 from app.models.user import User
@@ -20,17 +20,25 @@ def ask_question(
     current_user: User = Depends(get_current_user),
 ):
     history = [h.model_dump() for h in (data.conversation_history or [])]
-    result = ask(
-        db=db,
-        question=data.question,
-        data_source_id=data.data_source_id,
-        top_k=data.top_k,
-        enable_rewrite=data.enable_rewrite,
-        enable_hyde=data.enable_hyde,
-        enable_sql_fallback=data.enable_sql_fallback,
-        user_id=current_user.id,
-        conversation_history=history,
-    )
+    if data.mode == "chat":
+        result = ask_chat(
+            db=db,
+            question=data.question,
+            user_id=current_user.id,
+            conversation_history=history,
+        )
+    else:
+        result = ask(
+            db=db,
+            question=data.question,
+            data_source_id=data.data_source_id,
+            top_k=data.top_k,
+            enable_rewrite=data.enable_rewrite,
+            enable_hyde=data.enable_hyde,
+            enable_sql_fallback=data.enable_sql_fallback,
+            user_id=current_user.id,
+            conversation_history=history,
+        )
     return AskResponse(**result)
 
 
@@ -53,17 +61,26 @@ def ask_question_stream(
 
     def event_generator():
         try:
-            for event in ask_stream(
-                db=db,
-                question=data.question,
-                data_source_id=data.data_source_id,
-                top_k=data.top_k,
-                enable_rewrite=data.enable_rewrite,
-                enable_hyde=data.enable_hyde,
-                enable_sql_fallback=data.enable_sql_fallback,
-                user_id=current_user.id,
-                conversation_history=history,
-            ):
+            if data.mode == "chat":
+                gen = ask_chat_stream(
+                    db=db,
+                    question=data.question,
+                    user_id=current_user.id,
+                    conversation_history=history,
+                )
+            else:
+                gen = ask_stream(
+                    db=db,
+                    question=data.question,
+                    data_source_id=data.data_source_id,
+                    top_k=data.top_k,
+                    enable_rewrite=data.enable_rewrite,
+                    enable_hyde=data.enable_hyde,
+                    enable_sql_fallback=data.enable_sql_fallback,
+                    user_id=current_user.id,
+                    conversation_history=history,
+                )
+            for event in gen:
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"

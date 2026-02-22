@@ -109,8 +109,11 @@ export interface ConversationTurn {
   content: string
 }
 
+export type ChatMode = 'rag' | 'chat'
+
 export interface AskRequest {
   question: string
+  mode?: ChatMode
   data_source_id?: number
   top_k?: number
   enable_rewrite?: boolean

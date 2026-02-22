@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Any, Dict, Literal
 from datetime import datetime
 
 
@@ -10,9 +10,10 @@ class ConversationTurn(BaseModel):
 
 class AskRequest(BaseModel):
     question: str
+    mode: Literal["rag", "chat"] = "rag"   # rag=知识库问答  chat=纯 AI 对话
     data_source_id: Optional[int] = None
     top_k: int = 5
-    # 增强检索策略开关
+    # 增强检索策略开关（仅 rag 模式生效）
     enable_rewrite: bool = True       # 百炼查询改写 + 关键词提取
     enable_hyde: bool = True          # HyDE 假设文档检索
     enable_sql_fallback: bool = True  # 相似度低时 SQL 兜底
