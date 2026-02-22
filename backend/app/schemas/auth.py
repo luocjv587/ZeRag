@@ -39,3 +39,15 @@ class UserInfo(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def new_password_valid(cls, v: str) -> str:
+        if len(v) < 6:
+            raise ValueError("新密码长度不能少于 6 位")
+        return v

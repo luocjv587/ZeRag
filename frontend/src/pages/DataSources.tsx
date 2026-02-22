@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
-import type { DataSource, DataSourceCreate, DBType, UploadedFile, ChunkStrategy } from '../types'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import type { DataSource, DataSourceCreate, DataSourceUpdate, DBType, UploadedFile, ChunkStrategy, ChunkItem } from '../types'
 import { dataSourceService } from '../services/dataSource'
 
 const DB_TYPE_LABELS: Record<DBType, string> = {
@@ -18,12 +18,12 @@ const DB_TYPE_ICONS: Record<DBType, string> = {
 
 const SYNC_STATUS_CONFIG = {
   pending: { label: '待同步', className: 'bg-apple-gray-100 text-apple-gray-500' },
-  syncing: { label: '同步中', className: 'bg-blue-50 text-blue-500' },
+  syncing: { label: '同步中', className: 'bg-blue-50 text-blue-500 animate-pulse' },
   synced: { label: '已同步', className: 'bg-green-50 text-green-600' },
   error: { label: '同步失败', className: 'bg-red-50 text-red-500' },
 }
 
-const SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.pptx', '.ppt', '.txt', '.md']
+const SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.pptx', '.ppt', '.txt', '.md', '.xlsx', '.xls']
 
 const CHUNK_STRATEGY_LABELS: Record<ChunkStrategy, string> = {
   smart:     '🧠 智能分块（推荐）',
@@ -56,7 +56,276 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-// ───────── 文件管理面板 ─────────
+// ── Chunk 查看弹窗 ──────────────────────────────────────────────────────────
+
+function ChunkViewModal({ ds, onClose }: { ds: DataSource; onClose: () => void }) {
+  const [chunks, setChunks] = useState<ChunkItem[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [q, setQ] = useState('')
+  const [loading, setLoading] = useState(false)
+  const PAGE_SIZE = 15
+
+  const fetchChunks = useCallback(async (p: number, keyword: string) => {
+    setLoading(true)
+    try {
+      const res = await dataSourceService.getChunks(ds.id, p, PAGE_SIZE, keyword || undefined)
+      setChunks(res.items)
+      setTotal(res.total)
+    } finally {
+      setLoading(false)
+    }
+  }, [ds.id])
+
+  useEffect(() => { fetchChunks(1, '') }, [fetchChunks])
+
+  const handleSearch = () => {
+    setPage(1)
+    fetchChunks(1, q)
+  }
+
+  const handlePageChange = (p: number) => {
+    setPage(p)
+    fetchChunks(p, q)
+  }
+
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-apple-lg w-full max-w-2xl mx-4 flex flex-col" style={{ maxHeight: '80vh' }}>
+        {/* 头部 */}
+        <div className="px-5 py-4 border-b border-apple-gray-100 flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="text-sm font-semibold text-apple-black">知识片段 · {ds.name}</h2>
+            <p className="text-[10px] text-apple-gray-400 mt-0.5">共 {total} 个片段</p>
+          </div>
+          <button onClick={onClose} className="btn-ghost p-1">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        {/* 搜索栏 */}
+        <div className="px-5 py-3 border-b border-apple-gray-100 flex gap-2 shrink-0">
+          <input
+            placeholder="关键词过滤…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            className="input-base flex-1 text-xs"
+          />
+          <button onClick={handleSearch} className="btn-primary text-xs px-3">搜索</button>
+          {q && (
+            <button onClick={() => { setQ(''); fetchChunks(1, ''); setPage(1) }} className="btn-ghost text-xs px-3">清除</button>
+          )}
+        </div>
+
+        {/* 列表 */}
+        <div className="overflow-y-auto flex-1 px-5 py-3 space-y-2">
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <svg className="animate-spin w-5 h-5 text-apple-gray-400" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+            </div>
+          ) : chunks.length === 0 ? (
+            <p className="text-sm text-apple-gray-400 text-center py-10">暂无片段数据，请先同步数据源</p>
+          ) : (
+            chunks.map((chunk, idx) => (
+              <div key={chunk.id} className="bg-apple-gray-50 rounded-xl px-4 py-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-medium text-apple-gray-400">
+                    #{(page - 1) * PAGE_SIZE + idx + 1} · {chunk.table_name || '未知来源'}
+                  </span>
+                  <span className="text-[10px] text-apple-gray-300">块 {chunk.chunk_index}</span>
+                </div>
+                <p className="text-xs text-apple-gray-800 leading-relaxed line-clamp-4">{chunk.chunk_text}</p>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* 分页 */}
+        {totalPages > 1 && (
+          <div className="px-5 py-3 border-t border-apple-gray-100 flex items-center justify-between shrink-0">
+            <p className="text-xs text-apple-gray-400">{page} / {totalPages} 页</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handlePageChange(page - 1)}
+                disabled={page <= 1}
+                className="btn-ghost text-xs px-3 disabled:opacity-40"
+              >
+                上一页
+              </button>
+              <button
+                onClick={() => handlePageChange(page + 1)}
+                disabled={page >= totalPages}
+                className="btn-ghost text-xs px-3 disabled:opacity-40"
+              >
+                下一页
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── 编辑弹窗 ────────────────────────────────────────────────────────────────
+
+function EditModal({
+  ds,
+  onClose,
+  onSuccess,
+  showToast,
+}: {
+  ds: DataSource
+  onClose: () => void
+  onSuccess: () => void
+  showToast: (msg: string) => void
+}) {
+  const [form, setForm] = useState<DataSourceUpdate>({
+    name: ds.name,
+    host: ds.host,
+    port: ds.port,
+    database_name: ds.database_name,
+    username: ds.username,
+    password: '',
+    sqlite_path: ds.sqlite_path,
+    chunk_strategy: (ds.chunk_strategy as ChunkStrategy) ?? 'smart',
+  })
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    if (!form.name?.trim()) { showToast('名称不能为空'); return }
+    setSaving(true)
+    try {
+      const payload: DataSourceUpdate = { ...form }
+      // 密码为空则不更新
+      if (!payload.password) delete payload.password
+      await dataSourceService.update(ds.id, payload)
+      showToast('保存成功')
+      onSuccess()
+      onClose()
+    } catch {
+      showToast('保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-apple-lg w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-base font-semibold text-apple-black">编辑数据源</h2>
+          <button onClick={onClose} className="btn-ghost p-1">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <input
+            placeholder="名称"
+            value={form.name ?? ''}
+            onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+            className="input-base"
+          />
+
+          {ds.db_type === 'sqlite' && (
+            <input
+              placeholder="SQLite 文件路径"
+              value={form.sqlite_path ?? ''}
+              onChange={(e) => setForm((p) => ({ ...p, sqlite_path: e.target.value }))}
+              className="input-base"
+            />
+          )}
+
+          {(ds.db_type === 'postgresql' || ds.db_type === 'mysql') && (
+            <>
+              <div className="flex gap-3">
+                <input
+                  placeholder="主机地址"
+                  value={form.host ?? ''}
+                  onChange={(e) => setForm((p) => ({ ...p, host: e.target.value }))}
+                  className="input-base flex-1"
+                />
+                <input
+                  placeholder="端口"
+                  type="number"
+                  value={form.port ?? ''}
+                  onChange={(e) => setForm((p) => ({ ...p, port: Number(e.target.value) }))}
+                  className="input-base w-24"
+                />
+              </div>
+              <input
+                placeholder="数据库名"
+                value={form.database_name ?? ''}
+                onChange={(e) => setForm((p) => ({ ...p, database_name: e.target.value }))}
+                className="input-base"
+              />
+              <input
+                placeholder="用户名"
+                value={form.username ?? ''}
+                onChange={(e) => setForm((p) => ({ ...p, username: e.target.value }))}
+                className="input-base"
+              />
+              <input
+                placeholder="新密码（留空不修改）"
+                type="password"
+                value={form.password ?? ''}
+                onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
+                className="input-base"
+              />
+            </>
+          )}
+
+          {/* 分块策略 */}
+          <div className="border border-apple-gray-200 rounded-xl p-3 space-y-2">
+            <p className="text-xs font-medium text-apple-black">文档分块策略</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(Object.keys(CHUNK_STRATEGY_LABELS) as ChunkStrategy[]).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setForm((p) => ({ ...p, chunk_strategy: s }))}
+                  className={`text-left px-3 py-2 rounded-lg border text-xs transition-colors ${
+                    form.chunk_strategy === s
+                      ? 'border-blue-400 bg-blue-50 text-blue-700'
+                      : 'border-apple-gray-200 hover:border-apple-gray-300 text-apple-gray-500'
+                  }`}
+                >
+                  <p className="font-medium">{CHUNK_STRATEGY_LABELS[s]}</p>
+                </button>
+              ))}
+            </div>
+            {form.chunk_strategy && (
+              <p className="text-[10px] text-apple-gray-400 pt-1">
+                {CHUNK_STRATEGY_DESC[form.chunk_strategy as ChunkStrategy]}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button onClick={onClose} className="btn-secondary flex-1">取消</button>
+          <button onClick={handleSave} disabled={saving} className="btn-primary flex-1">
+            {saving ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── 文件管理面板 ─────────────────────────────────────────────────────────────
+
 function FilePanel({ ds, onRefresh, showToast }: {
   ds: DataSource
   onRefresh: () => void
@@ -77,6 +346,15 @@ function FilePanel({ ds, onRefresh, showToast }: {
       showToast(`不支持的格式：${invalid.map((f) => f.name).join(', ')}`)
       return
     }
+
+    // 检查同名文件
+    const existingNames = (ds.uploaded_files || []).map((f) => f.filename)
+    const duplicates = fileArr.filter((f) => existingNames.includes(f.name))
+    if (duplicates.length > 0) {
+      const names = duplicates.map((f) => f.name).join('、')
+      if (!confirm(`以下文件已存在，上传将覆盖原文件：\n${names}\n\n确认继续？`)) return
+    }
+
     setUploading(true)
     try {
       await dataSourceService.uploadFiles(ds.id, fileArr)
@@ -150,11 +428,9 @@ function FilePanel({ ds, onRefresh, showToast }: {
               <polyline points="17 8 12 3 7 8"/>
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
-            <p className="text-xs text-apple-gray-400">
-              点击或拖拽文件上传
-            </p>
+            <p className="text-xs text-apple-gray-400">点击或拖拽文件上传</p>
             <p className="text-[10px] text-apple-gray-300 mt-0.5">
-              支持 PDF · Word · PPT · TXT · MD，单文件 ≤ 50MB
+              支持 PDF · Word · PPT · Excel · TXT · MD，单文件 ≤ 50MB
             </p>
           </>
         )}
@@ -169,7 +445,8 @@ function FilePanel({ ds, onRefresh, showToast }: {
                 <span className="text-base shrink-0">
                   {file.filename.endsWith('.pdf') ? '📕' :
                    file.filename.endsWith('.docx') || file.filename.endsWith('.doc') ? '📘' :
-                   file.filename.endsWith('.pptx') || file.filename.endsWith('.ppt') ? '📙' : '📄'}
+                   file.filename.endsWith('.pptx') || file.filename.endsWith('.ppt') ? '📙' :
+                   file.filename.endsWith('.xlsx') || file.filename.endsWith('.xls') ? '📗' : '📄'}
                 </span>
                 <div className="min-w-0">
                   <p className="text-xs text-apple-black font-medium truncate">{file.filename}</p>
@@ -193,24 +470,77 @@ function FilePanel({ ds, onRefresh, showToast }: {
   )
 }
 
-// ───────── 主组件 ─────────
+// ── 主组件 ───────────────────────────────────────────────────────────────────
+
 export default function DataSources() {
   const [list, setList] = useState<DataSource[]>([])
   const [showModal, setShowModal] = useState(false)
+  const [editDs, setEditDs] = useState<DataSource | null>(null)
+  const [chunkDs, setChunkDs] = useState<DataSource | null>(null)
   const [form, setForm] = useState<DataSourceCreate>(defaultForm)
   const [submitting, setSubmitting] = useState(false)
   const [actionLoading, setActionLoading] = useState<Record<number, string>>({})
   const [toast, setToast] = useState('')
   const [expandedFileDs, setExpandedFileDs] = useState<Set<number>>(new Set())
+  const [chunkCounts, setChunkCounts] = useState<Record<number, number>>({})
+  // 轮询中的数据源 ID 集合
+  const pollingRef = useRef<Record<number, ReturnType<typeof setInterval>>>({})
 
   const showToast = (msg: string) => {
     setToast(msg)
     setTimeout(() => setToast(''), 2500)
   }
 
-  const fetchList = () => dataSourceService.list().then(setList).catch(() => {})
+  const fetchList = useCallback(() => {
+    dataSourceService.list().then((data) => {
+      setList(data)
+      // 同步 chunk 统计
+      data.forEach((ds) => {
+        dataSourceService.getSyncStatus(ds.id)
+          .then((s) => setChunkCounts((prev) => ({ ...prev, [ds.id]: s.chunk_count })))
+          .catch(() => {})
+      })
+    }).catch(() => {})
+  }, [])
 
-  useEffect(() => { fetchList() }, [])
+  useEffect(() => { fetchList() }, [fetchList])
+
+  // 清理轮询
+  useEffect(() => {
+    return () => {
+      Object.values(pollingRef.current).forEach(clearInterval)
+    }
+  }, [])
+
+  /** 启动对某个 DS 的同步状态轮询，直到不再 syncing */
+  const startPolling = (dsId: number) => {
+    if (pollingRef.current[dsId]) return
+    pollingRef.current[dsId] = setInterval(async () => {
+      try {
+        const s = await dataSourceService.getSyncStatus(dsId)
+        setChunkCounts((prev) => ({ ...prev, [dsId]: s.chunk_count }))
+        setList((prev) =>
+          prev.map((ds) =>
+            ds.id === dsId
+              ? { ...ds, sync_status: s.sync_status, sync_error: s.sync_error ?? undefined, last_synced_at: s.last_synced_at ?? undefined }
+              : ds
+          )
+        )
+        if (s.sync_status !== 'syncing') {
+          clearInterval(pollingRef.current[dsId])
+          delete pollingRef.current[dsId]
+          if (s.sync_status === 'synced') {
+            showToast(`同步完成，共 ${s.chunk_count} 个片段`)
+          } else if (s.sync_status === 'error') {
+            showToast(`同步失败：${s.sync_error || '未知错误'}`)
+          }
+        }
+      } catch {
+        clearInterval(pollingRef.current[dsId])
+        delete pollingRef.current[dsId]
+      }
+    }, 2000)
+  }
 
   const handleSubmit = async () => {
     if (!form.name || !form.db_type) return
@@ -221,7 +551,6 @@ export default function DataSources() {
       setForm(defaultForm)
       fetchList()
       showToast('数据源创建成功')
-      // 文件类型自动展开上传区域
       if (created.db_type === 'file') {
         setExpandedFileDs((prev) => new Set(prev).add(created.id))
       }
@@ -259,7 +588,9 @@ export default function DataSources() {
     try {
       const res = await dataSourceService.sync(id)
       showToast(res.message)
-      setTimeout(fetchList, 1000)
+      // 乐观更新状态为 syncing，然后启动轮询
+      setList((prev) => prev.map((ds) => ds.id === id ? { ...ds, sync_status: 'syncing' } : ds))
+      startPolling(id)
     } finally {
       setActionLoading((p) => { const n = { ...p }; delete n[id]; return n })
     }
@@ -274,7 +605,6 @@ export default function DataSources() {
     })
   }
 
-  // 当 db_type 切换时重置端口
   const handleDbTypeChange = (dbType: DBType) => {
     const portMap: Record<string, number> = { postgresql: 5432, mysql: 3306 }
     setForm((p) => ({
@@ -299,8 +629,7 @@ export default function DataSources() {
         </div>
         <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
+            <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
           </svg>
           添加数据源
         </button>
@@ -324,6 +653,7 @@ export default function DataSources() {
             const statusCfg = SYNC_STATUS_CONFIG[ds.sync_status] || SYNC_STATUS_CONFIG.pending
             const isFile = ds.db_type === 'file'
             const isExpanded = expandedFileDs.has(ds.id)
+            const chunkCount = chunkCounts[ds.id]
 
             return (
               <div key={ds.id} className="card px-5 py-4">
@@ -348,10 +678,21 @@ export default function DataSources() {
                         {ds.sqlite_path && ` · ${ds.sqlite_path}`}
                         {isFile && ds.uploaded_files && ` · ${ds.uploaded_files.length} 个文件`}
                       </p>
-                      {ds.last_synced_at && (
                         <p className="text-[10px] text-apple-gray-300 mt-0.5">
-                          上次同步：{new Date(ds.last_synced_at).toLocaleString('zh-CN')}
-                          {ds.chunk_strategy && ` · 分块：${ds.chunk_strategy}`}
+                        {ds.last_synced_at
+                          ? `上次同步：${new Date(ds.last_synced_at).toLocaleString('zh-CN')}`
+                          : '尚未同步'
+                        }
+                        {ds.chunk_strategy && ` · ${ds.chunk_strategy}`}
+                        {/* Chunk 统计 */}
+                        {chunkCount !== undefined && chunkCount > 0 && (
+                          <span className="ml-1 text-blue-400">· {chunkCount} 个片段</span>
+                        )}
+                      </p>
+                      {/* 同步错误提示 */}
+                      {ds.sync_status === 'error' && ds.sync_error && (
+                        <p className="text-[10px] text-red-400 mt-0.5 truncate max-w-xs" title={ds.sync_error}>
+                          ⚠️ {ds.sync_error}
                         </p>
                       )}
                     </div>
@@ -361,16 +702,13 @@ export default function DataSources() {
                     <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusCfg.className}`}>
                       {statusCfg.label}
                     </span>
-                    {/* 文件类型展示"管理文件"按钮 */}
+                    {/* 文件类型 */}
                     {isFile && (
-                      <button
-                        onClick={() => toggleFileExpand(ds.id)}
-                        className="btn-ghost text-xs"
-                      >
+                      <button onClick={() => toggleFileExpand(ds.id)} className="btn-ghost text-xs">
                         {isExpanded ? '收起文件' : '管理文件'}
                       </button>
                     )}
-                    {/* 非文件类型显示测试连接 */}
+                    {/* 非文件类型 */}
                     {!isFile && (
                       <button
                         onClick={() => handleTest(ds.id)}
@@ -380,13 +718,35 @@ export default function DataSources() {
                         {actionLoading[ds.id] === 'test' ? '测试中…' : '测试连接'}
                       </button>
                     )}
+                    {/* Chunk 查看 */}
+                    {ds.sync_status === 'synced' && (chunkCount ?? 0) > 0 && (
+                      <button onClick={() => setChunkDs(ds)} className="btn-ghost text-xs">
+                        查看片段
+                      </button>
+                    )}
+                    {/* 编辑 */}
+                    <button onClick={() => setEditDs(ds)} className="btn-ghost text-xs">
+                      编辑
+                    </button>
                     <button
                       onClick={() => handleSync(ds.id)}
-                      disabled={!!actionLoading[ds.id] || (isFile && (!ds.uploaded_files || ds.uploaded_files.length === 0))}
+                      disabled={
+                        !!actionLoading[ds.id] ||
+                        ds.sync_status === 'syncing' ||
+                        (isFile && (!ds.uploaded_files || ds.uploaded_files.length === 0))
+                      }
                       className="btn-ghost text-xs"
                       title={isFile && (!ds.uploaded_files || ds.uploaded_files.length === 0) ? '请先上传文件再同步' : ''}
                     >
-                      {actionLoading[ds.id] === 'sync' ? '同步中…' : '同步'}
+                      {ds.sync_status === 'syncing' ? (
+                        <span className="flex items-center gap-1">
+                          <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                          </svg>
+                          同步中
+                        </span>
+                      ) : (actionLoading[ds.id] === 'sync' ? '启动中…' : '同步')}
                     </button>
                     <button
                       onClick={() => handleDelete(ds.id)}
@@ -411,13 +771,12 @@ export default function DataSources() {
       {/* 创建弹窗 */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-apple-lg w-full max-w-md p-6">
+          <div className="bg-white rounded-2xl shadow-apple-lg w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-base font-semibold text-apple-black">添加数据源</h2>
               <button onClick={() => setShowModal(false)} className="btn-ghost p-1">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
               </button>
             </div>
@@ -441,12 +800,11 @@ export default function DataSources() {
                 <option value="file">📄 文件（PDF / Word / PPT）</option>
               </select>
 
-              {/* 文件类型：提示创建后上传 */}
               {form.db_type === 'file' && (
                 <div className="bg-blue-50 rounded-xl px-4 py-3 text-xs text-blue-600">
                   <p className="font-medium mb-1">📁 文件知识库</p>
-                  <p>创建后，在数据源列表点击「管理文件」上传 PDF、Word、PPT 等文档，再点击「同步」建立向量索引。</p>
-                  <p className="mt-1 text-blue-400">支持格式：.pdf · .docx · .doc · .pptx · .ppt · .txt · .md</p>
+                  <p>创建后，在数据源列表点击「管理文件」上传文档，再点击「同步」建立向量索引。</p>
+                  <p className="mt-1 text-blue-400">支持格式：.pdf · .docx · .doc · .pptx · .ppt · .txt · .md · .xlsx · .xls</p>
                 </div>
               )}
 
@@ -533,6 +891,24 @@ export default function DataSources() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 编辑弹窗 */}
+      {editDs && (
+        <EditModal
+          ds={editDs}
+          onClose={() => setEditDs(null)}
+          onSuccess={fetchList}
+          showToast={showToast}
+        />
+      )}
+
+      {/* Chunk 查看弹窗 */}
+      {chunkDs && (
+        <ChunkViewModal
+          ds={chunkDs}
+          onClose={() => setChunkDs(null)}
+        />
       )}
 
       {/* Toast 提示 */}

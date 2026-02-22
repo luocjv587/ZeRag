@@ -1,6 +1,6 @@
 """
 文件内容提取服务
-支持：PDF、Word (.docx)、PowerPoint (.pptx)、纯文本 (.txt)
+支持：PDF、Word (.docx/.doc)、PowerPoint (.pptx/.ppt)、纯文本 (.txt/.md)、Excel (.xlsx/.xls)
 """
 import os
 from typing import List
@@ -79,15 +79,138 @@ def extract_text_from_txt(file_path: str) -> str:
         raise
 
 
+def extract_text_from_excel(file_path: str) -> str:
+    """
+    提取 Excel 文件内容（.xlsx / .xls）
+    每个 Sheet 单独标注，每行格式化为 「列名=值」，方便 RAG 检索。
+    空行、全空列自动跳过。
+    """
+    ext = os.path.splitext(file_path)[1].lower()
+    try:
+        if ext == ".xlsx":
+            return _extract_xlsx(file_path)
+        elif ext == ".xls":
+            return _extract_xls(file_path)
+        else:
+            raise ValueError(f"不支持的 Excel 格式: {ext}")
+    except (ImportError, ModuleNotFoundError) as e:
+        raise ImportError(str(e))
+    except Exception as e:
+        logger.error(f"Excel 解析失败 {file_path}: {e}")
+        raise
+
+
+def _extract_xlsx(file_path: str) -> str:
+    """使用 openpyxl 解析 .xlsx"""
+    try:
+        import openpyxl
+    except ImportError:
+        raise ImportError("openpyxl 未安装，请运行: pip install openpyxl")
+
+    wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+    all_sheets: List[str] = []
+
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows = list(ws.iter_rows(values_only=True))
+        sheet_text = _rows_to_text(sheet_name, rows)
+        if sheet_text:
+            all_sheets.append(sheet_text)
+
+    wb.close()
+    return "\n\n".join(all_sheets)
+
+
+def _extract_xls(file_path: str) -> str:
+    """使用 xlrd 解析 .xls（旧版 Excel）"""
+    try:
+        import xlrd
+    except ImportError:
+        raise ImportError("xlrd 未安装，请运行: pip install xlrd")
+
+    wb = xlrd.open_workbook(file_path)
+    all_sheets: List[str] = []
+
+    for sheet in wb.sheets():
+        rows = [
+            tuple(sheet.cell_value(r, c) for c in range(sheet.ncols))
+            for r in range(sheet.nrows)
+        ]
+        sheet_text = _rows_to_text(sheet.name, rows)
+        if sheet_text:
+            all_sheets.append(sheet_text)
+
+    return "\n\n".join(all_sheets)
+
+
+def _rows_to_text(sheet_name: str, rows: List[tuple]) -> str:
+    """
+    将行列数据转换为可供 RAG 检索的文本。
+    策略：
+    - 首行作为表头（列名）
+    - 每个数据行格式化为：「列名1=值1 | 列名2=值2 | …」
+    - 若无表头则直接以 tab 分隔输出
+    - 过滤空行
+    """
+    if not rows:
+        return ""
+
+    # 过滤全为空的行
+    non_empty_rows = [
+        r for r in rows
+        if any(v is not None and str(v).strip() != "" for v in r)
+    ]
+    if not non_empty_rows:
+        return ""
+
+    lines: List[str] = [f"[Sheet: {sheet_name}]"]
+
+    # 取第一行作为表头
+    header = [str(v).strip() if v is not None else "" for v in non_empty_rows[0]]
+    has_header = any(h for h in header)
+
+    if has_header:
+        # 输出表头行（作为列名参考）
+        lines.append("列名：" + " | ".join(h for h in header if h))
+        # 输出数据行
+        for row in non_empty_rows[1:]:
+            cells = []
+            for col_idx, val in enumerate(row):
+                col_name = header[col_idx] if col_idx < len(header) else f"列{col_idx + 1}"
+                cell_str = str(val).strip() if val is not None else ""
+                if cell_str and cell_str != "None":
+                    cells.append(f"{col_name}={cell_str}")
+            if cells:
+                lines.append(" | ".join(cells))
+    else:
+        # 无表头，直接输出每行
+        for row in non_empty_rows:
+            cell_strs = [
+                str(v).strip()
+                for v in row
+                if v is not None and str(v).strip() not in ("", "None")
+            ]
+            if cell_strs:
+                lines.append("\t".join(cell_strs))
+
+    # 只有标题行，没有实际内容
+    if len(lines) <= 2:
+        return ""
+
+    return "\n".join(lines)
+
+
 # 文件扩展名 → 解析函数映射
 EXTRACTORS = {
-    ".pdf": extract_text_from_pdf,
+    ".pdf":  extract_text_from_pdf,
     ".docx": extract_text_from_docx,
-    ".doc": extract_text_from_docx,    # 旧版 Word 也尝试 python-docx
+    ".doc":  extract_text_from_docx,   # 旧版 Word 也尝试 python-docx
     ".pptx": extract_text_from_pptx,
-    ".ppt": extract_text_from_pptx,    # 旧版 PPT
-    ".txt": extract_text_from_txt,
-    ".md": extract_text_from_txt,
+    ".ppt":  extract_text_from_pptx,   # 旧版 PPT
+    ".txt":  extract_text_from_txt,
+    ".md":   extract_text_from_txt,
+    ".xlsx": extract_text_from_excel,  # Excel 新版
+    ".xls":  extract_text_from_excel,  # Excel 旧版
 }
 
 SUPPORTED_EXTENSIONS = set(EXTRACTORS.keys())

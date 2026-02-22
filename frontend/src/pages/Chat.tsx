@@ -4,14 +4,159 @@ import ChatMessageItem from '../components/Chat/ChatMessage'
 import { qaService } from '../services/qa'
 import { dataSourceService } from '../services/dataSource'
 
+// ── 会话持久化 key ──────────────────────────────────────────────────────────
+const SESSION_KEY = 'zerag_chat_session'
+
+interface SavedSession {
+  messages: Omit<ChatMessage, 'timestamp'>[]
+  selectedDsId?: number
+}
+
+function loadSession(): { messages: ChatMessage[]; selectedDsId?: number } {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY)
+    if (!raw) return { messages: [] }
+    const parsed: SavedSession = JSON.parse(raw)
+    return {
+      messages: parsed.messages.map((m) => ({ ...m, timestamp: new Date() })),
+      selectedDsId: parsed.selectedDsId,
+    }
+  } catch {
+    return { messages: [] }
+  }
+}
+
+function saveSession(messages: ChatMessage[], selectedDsId?: number) {
+  try {
+    const data: SavedSession = {
+      messages: messages
+        .filter((m) => !m.loading)
+        .map(({ timestamp: _ts, ...rest }) => rest),
+      selectedDsId,
+    }
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(data))
+  } catch { /* ignore */ }
+}
+
+// ── RAG 设置面板 ─────────────────────────────────────────────────────────────
+
+interface RagSettings {
+  enable_rewrite: boolean
+  enable_hyde: boolean
+  enable_sql_fallback: boolean
+  top_k: number
+}
+
+const DEFAULT_SETTINGS: RagSettings = {
+  enable_rewrite: true,
+  enable_hyde: true,
+  enable_sql_fallback: true,
+  top_k: 5,
+}
+
+interface SettingsPanelProps {
+  settings: RagSettings
+  onChange: (s: RagSettings) => void
+  onClose: () => void
+}
+
+function SettingsPanel({ settings, onChange, onClose }: SettingsPanelProps) {
+  return (
+    <div className="absolute right-0 top-full mt-2 z-30 bg-white rounded-2xl shadow-apple-lg border border-apple-gray-100 p-4 w-72">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold text-apple-black">RAG 参数设置</p>
+        <button onClick={onClose} className="btn-ghost p-0.5">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {/* Top K */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs text-apple-black font-medium">检索数量 (Top-K)</p>
+            <p className="text-[10px] text-apple-gray-400">每次检索返回的片段数</p>
+          </div>
+          <select
+            value={settings.top_k}
+            onChange={(e) => onChange({ ...settings, top_k: Number(e.target.value) })}
+            className="input-base w-16 text-xs py-1"
+          >
+            {[3, 5, 8, 10, 15].map((v) => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* 查询改写 */}
+        <label className="flex items-center justify-between cursor-pointer">
+          <div>
+            <p className="text-xs text-apple-black font-medium">🔄 查询改写</p>
+            <p className="text-[10px] text-apple-gray-400">AI 自动优化问题，提取关键词</p>
+          </div>
+          <button
+            onClick={() => onChange({ ...settings, enable_rewrite: !settings.enable_rewrite })}
+            className={`relative w-9 h-5 rounded-full transition-colors ${settings.enable_rewrite ? 'bg-apple-black' : 'bg-apple-gray-300'}`}
+          >
+            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${settings.enable_rewrite ? 'translate-x-4' : 'translate-x-0.5'}`} />
+          </button>
+        </label>
+
+        {/* HyDE */}
+        <label className="flex items-center justify-between cursor-pointer">
+          <div>
+            <p className="text-xs text-apple-black font-medium">🧪 HyDE 增强</p>
+            <p className="text-[10px] text-apple-gray-400">假设文档嵌入，提升召回率</p>
+          </div>
+          <button
+            onClick={() => onChange({ ...settings, enable_hyde: !settings.enable_hyde })}
+            className={`relative w-9 h-5 rounded-full transition-colors ${settings.enable_hyde ? 'bg-apple-black' : 'bg-apple-gray-300'}`}
+          >
+            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${settings.enable_hyde ? 'translate-x-4' : 'translate-x-0.5'}`} />
+          </button>
+        </label>
+
+        {/* SQL 兜底 */}
+        <label className="flex items-center justify-between cursor-pointer">
+          <div>
+            <p className="text-xs text-apple-black font-medium">🗄️ SQL 兜底</p>
+            <p className="text-[10px] text-apple-gray-400">相似度低时直接查源库（仅数据库数据源）</p>
+          </div>
+          <button
+            onClick={() => onChange({ ...settings, enable_sql_fallback: !settings.enable_sql_fallback })}
+            className={`relative w-9 h-5 rounded-full transition-colors ${settings.enable_sql_fallback ? 'bg-apple-black' : 'bg-apple-gray-300'}`}
+          >
+            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${settings.enable_sql_fallback ? 'translate-x-4' : 'translate-x-0.5'}`} />
+          </button>
+        </label>
+      </div>
+
+      <button
+        onClick={() => onChange(DEFAULT_SETTINGS)}
+        className="mt-3 w-full text-xs text-apple-gray-400 hover:text-apple-gray-700 transition-colors"
+      >
+        恢复默认
+      </button>
+    </div>
+  )
+}
+
+// ── 主组件 ───────────────────────────────────────────────────────────────────
+
 export default function Chat() {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const session = loadSession()
+  const [messages, setMessages] = useState<ChatMessage[]>(session.messages)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [dataSources, setDataSources] = useState<DataSource[]>([])
-  const [selectedDsId, setSelectedDsId] = useState<number | undefined>()
+  const [selectedDsId, setSelectedDsId] = useState<number | undefined>(session.selectedDsId)
+  const [ragSettings, setRagSettings] = useState<RagSettings>(DEFAULT_SETTINGS)
+  const [showSettings, setShowSettings] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<(() => void) | null>(null)
+  const settingsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     dataSourceService.list().then(setDataSources).catch(() => {})
@@ -21,7 +166,23 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  /** 从当前 messages 中提取多轮对话历史（不含 loading 中的消息） */
+  // 会话持久化：消息变化时保存
+  useEffect(() => {
+    saveSession(messages, selectedDsId)
+  }, [messages, selectedDsId])
+
+  // 点击外部关闭设置面板
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
+        setShowSettings(false)
+      }
+    }
+    if (showSettings) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showSettings])
+
+  /** 从当前 messages 中提取多轮对话历史 */
   const buildConversationHistory = useCallback(
     (currentMessages: ChatMessage[]): ConversationTurn[] => {
       return currentMessages
@@ -36,6 +197,7 @@ export default function Chat() {
 
     const question = input.trim()
     setInput('')
+    setShowSettings(false)
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -53,37 +215,31 @@ export default function Chat() {
       loading: true,
     }
 
-    // 在加入新消息前先构建历史（不含本次 user 消息）
     const conversationHistory = buildConversationHistory(messages)
 
     setMessages((prev) => [...prev, userMsg, loadingMsg])
     setLoading(true)
 
-    // 使用流式接口
     const abort = qaService.askStream(
       {
         question,
         data_source_id: selectedDsId,
-        top_k: 5,
+        top_k: ragSettings.top_k,
+        enable_rewrite: ragSettings.enable_rewrite,
+        enable_hyde: ragSettings.enable_hyde,
+        enable_sql_fallback: ragSettings.enable_sql_fallback,
         conversation_history: conversationHistory,
       },
       (event) => {
         if (event.type === 'retrieval_done') {
-          // 检索完成，预填充 chunks 信息，内容仍为空（等待 token）
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantMsgId
-                ? {
-                    ...m,
-                    loading: true,
-                    chunks: event.chunks,
-                    pipeline_log: event.pipeline_log,
-                  }
+                ? { ...m, loading: true, chunks: event.chunks, pipeline_log: event.pipeline_log }
                 : m,
             ),
           )
         } else if (event.type === 'token') {
-          // 逐 token 追加内容，loading 保持 true（显示光标）
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantMsgId
@@ -92,7 +248,6 @@ export default function Chat() {
             ),
           )
         } else if (event.type === 'done') {
-          // 生成完毕，关闭 loading
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantMsgId
@@ -134,7 +289,6 @@ export default function Chat() {
     }
   }
 
-  /** 停止当前生成 */
   const handleStop = () => {
     abortRef.current?.()
     abortRef.current = null
@@ -146,11 +300,18 @@ export default function Chat() {
     setLoading(false)
   }
 
-  /** 清空对话 */
   const handleClear = () => {
     if (loading) handleStop()
     setMessages([])
+    sessionStorage.removeItem(SESSION_KEY)
   }
+
+  // 判断当前设置是否非默认
+  const hasCustomSettings =
+    ragSettings.enable_rewrite !== DEFAULT_SETTINGS.enable_rewrite ||
+    ragSettings.enable_hyde !== DEFAULT_SETTINGS.enable_hyde ||
+    ragSettings.enable_sql_fallback !== DEFAULT_SETTINGS.enable_sql_fallback ||
+    ragSettings.top_k !== DEFAULT_SETTINGS.top_k
 
   return (
     <div className="flex flex-col h-full">
@@ -161,7 +322,6 @@ export default function Chat() {
           <p className="text-xs text-apple-gray-400 mt-0.5">基于数据源内容进行 AI 问答（支持多轮对话）</p>
         </div>
         <div className="flex items-center gap-3">
-          {/* 清空对话 */}
           {messages.length > 0 && (
             <button
               onClick={handleClear}
@@ -182,6 +342,27 @@ export default function Chat() {
               <option key={ds.id} value={ds.id}>{ds.name}</option>
             ))}
           </select>
+          {/* RAG 设置按钮 */}
+          <div className="relative" ref={settingsRef}>
+            <button
+              onClick={() => setShowSettings((v) => !v)}
+              title="RAG 参数设置"
+              className={`btn-ghost px-2.5 py-2 flex items-center gap-1 ${hasCustomSettings ? 'text-blue-500' : ''}`}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+              </svg>
+              {hasCustomSettings && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
+            </button>
+            {showSettings && (
+              <SettingsPanel
+                settings={ragSettings}
+                onChange={setRagSettings}
+                onClose={() => setShowSettings(false)}
+              />
+            )}
+          </div>
         </div>
       </div>
 
@@ -197,6 +378,16 @@ export default function Chat() {
             <p className="text-sm font-medium text-apple-gray-500">开始提问</p>
             <p className="text-xs text-apple-gray-300 mt-1">向已同步的数据源提问，获取 AI 智能回答</p>
             <p className="text-xs text-apple-gray-300 mt-0.5">支持多轮对话，AI 会记住本次会话的上下文</p>
+            {/* 当前生效的 RAG 参数摘要 */}
+            <div className="mt-4 flex items-center gap-2 text-[10px] text-apple-gray-300">
+              <span className={ragSettings.enable_rewrite ? 'text-green-500' : 'line-through'}>查询改写</span>
+              <span>·</span>
+              <span className={ragSettings.enable_hyde ? 'text-green-500' : 'line-through'}>HyDE</span>
+              <span>·</span>
+              <span className={ragSettings.enable_sql_fallback ? 'text-green-500' : 'line-through'}>SQL兜底</span>
+              <span>·</span>
+              <span>Top-{ragSettings.top_k}</span>
+            </div>
           </div>
         ) : (
           <>
@@ -210,7 +401,6 @@ export default function Chat() {
 
       {/* 输入区 */}
       <div className="px-6 py-4 border-t border-apple-gray-200">
-        {/* 多轮对话提示 */}
         {messages.filter((m) => !m.loading).length >= 2 && (
           <div className="flex items-center gap-1.5 mb-2">
             <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
@@ -239,7 +429,6 @@ export default function Chat() {
             <button
               onClick={handleStop}
               className="btn-secondary px-4 py-2.5 shrink-0 flex items-center gap-1.5"
-              title="停止生成"
             >
               <span className="w-3 h-3 border-2 border-current rounded-sm" />
               停止

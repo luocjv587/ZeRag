@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -95,3 +95,36 @@ def get_history(
         query = query.filter(QAHistory.data_source_id == data_source_id)
 
     return query.limit(limit).all()
+
+
+@router.delete("/history/{history_id}", status_code=204)
+def delete_history(
+    history_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除单条问答历史"""
+    record = db.query(QAHistory).filter(QAHistory.id == history_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="记录不存在")
+    # 非管理员只能删除自己的记录
+    if not current_user.is_admin and record.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权删除该记录")
+    db.delete(record)
+    db.commit()
+
+
+@router.delete("/history", status_code=204)
+def clear_history(
+    data_source_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """清空问答历史（管理员可清空全部，普通用户只能清空自己的）"""
+    query = db.query(QAHistory)
+    if not current_user.is_admin:
+        query = query.filter(QAHistory.user_id == current_user.id)
+    if data_source_id:
+        query = query.filter(QAHistory.data_source_id == data_source_id)
+    query.delete(synchronize_session=False)
+    db.commit()

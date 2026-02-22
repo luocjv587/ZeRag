@@ -6,7 +6,7 @@ from app.database.pgvector_setup import setup_pgvector
 from app.models import *  # noqa: 确保所有模型被注册
 from app.database.connection import Base
 from app.services.auth_service import init_default_admin
-from app.api import auth, data_sources, qa, tools
+from app.api import auth, data_sources, qa, tools, admin
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -30,6 +30,7 @@ app.include_router(auth.router)
 app.include_router(data_sources.router)
 app.include_router(qa.router)
 app.include_router(tools.router)
+app.include_router(admin.router)
 
 
 @app.on_event("startup")

@@ -1,14 +1,17 @@
 import os
 import shutil
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel
+from datetime import datetime
 from app.database.connection import get_db
 from app.schemas.data_source import DataSourceCreate, DataSourceUpdate, DataSourceResponse
 from app.services import data_source_service
 from app.services.vector_store_service import sync_data_source
 from app.middleware.auth import get_current_user
 from app.models.user import User
+from app.models.document_chunk import DocumentChunk
 from app.services.file_processor import SUPPORTED_EXTENSIONS
 
 router = APIRouter(prefix="/api/v1/data-sources", tags=["数据源"])
@@ -177,6 +180,72 @@ def delete_uploaded_file(
     _check_ds_access(ds, current_user)
     ds = data_source_service.remove_uploaded_file(db, ds, filename)
     return ds
+
+
+@router.get("/{ds_id}/sync-status")
+def get_sync_status(
+    ds_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取数据源同步状态及 chunk 统计（前端轮询用）"""
+    ds = data_source_service.get_data_source(db, ds_id)
+    if not ds:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    _check_ds_access(ds, current_user)
+    chunk_count = db.query(DocumentChunk).filter(DocumentChunk.data_source_id == ds_id).count()
+    return {
+        "sync_status": ds.sync_status,
+        "sync_error": ds.sync_error,
+        "last_synced_at": ds.last_synced_at,
+        "chunk_count": chunk_count,
+    }
+
+
+class ChunkItem(BaseModel):
+    id: int
+    table_name: Optional[str] = None
+    chunk_text: str
+    chunk_index: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ChunkListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: List[ChunkItem]
+
+
+@router.get("/{ds_id}/chunks", response_model=ChunkListResponse)
+def list_chunks(
+    ds_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    q: Optional[str] = Query(None, description="按内容关键词过滤"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """分页查看数据源的 chunk 内容"""
+    ds = data_source_service.get_data_source(db, ds_id)
+    if not ds:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    _check_ds_access(ds, current_user)
+
+    query = db.query(DocumentChunk).filter(DocumentChunk.data_source_id == ds_id)
+    if q:
+        query = query.filter(DocumentChunk.chunk_text.ilike(f"%{q}%"))
+    total = query.count()
+    items = (
+        query.order_by(DocumentChunk.id.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return ChunkListResponse(total=total, page=page, page_size=page_size, items=items)
 
 
 # ── 内部辅助 ──────────────────────────────────────────────────────────────────

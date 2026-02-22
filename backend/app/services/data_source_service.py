@@ -48,6 +48,7 @@ def create_data_source(db: Session, data: DataSourceCreate, owner_id: Optional[i
         encrypted_password=encrypted_pwd,
         sqlite_path=data.sqlite_path,
         tables_config=tables_cfg,
+        chunk_strategy=data.chunk_strategy or "smart",
     )
     db.add(ds)
     db.commit()

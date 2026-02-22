@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* highlight.js 代码高亮主题（GitHub Dark Dimmed 风格） */
+@import 'highlight.js/styles/github-dark-dimmed.css';
+
 @layer base {
   * {
     -webkit-font-smoothing: antialiased;

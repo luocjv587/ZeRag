@@ -14,6 +14,16 @@ export const qaService = {
     return res.data
   },
 
+  async deleteHistory(id: number): Promise<void> {
+    await api.delete(`/api/v1/qa/history/${id}`)
+  },
+
+  async clearHistory(dataSourceId?: number): Promise<void> {
+    const params: Record<string, unknown> = {}
+    if (dataSourceId) params.data_source_id = dataSourceId
+    await api.delete('/api/v1/qa/history', { params })
+  },
+
   /**
    * 流式问答：通过 Server-Sent Events 逐 token 接收回答
    * onEvent 回调每收到一个事件就调用一次

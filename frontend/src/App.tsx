@@ -6,6 +6,7 @@ import Chat from './pages/Chat'
 import DataSources from './pages/DataSources'
 import History from './pages/History'
 import Tools from './pages/Tools'
+import Admin from './pages/Admin'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -48,6 +49,7 @@ function AppRoutes() {
         <Route path="/data-sources" element={<DataSources />} />
         <Route path="/history" element={<History />} />
         <Route path="/tools" element={<Tools />} />
+        <Route path="/admin" element={<Admin />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

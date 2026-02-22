@@ -3,6 +3,7 @@ export interface User {
   username: string
   is_active: boolean
   is_admin: boolean
+  created_at?: string
 }
 
 export interface TokenResponse {
@@ -58,6 +59,39 @@ export interface DataSourceCreate {
   chunk_strategy?: ChunkStrategy
 }
 
+export interface DataSourceUpdate {
+  name?: string
+  host?: string
+  port?: number
+  database_name?: string
+  username?: string
+  password?: string
+  sqlite_path?: string
+  chunk_strategy?: ChunkStrategy
+}
+
+export interface SyncStatus {
+  sync_status: 'pending' | 'syncing' | 'synced' | 'error'
+  sync_error?: string
+  last_synced_at?: string
+  chunk_count: number
+}
+
+export interface ChunkItem {
+  id: number
+  table_name?: string
+  chunk_text: string
+  chunk_index: number
+  created_at: string
+}
+
+export interface ChunkListResponse {
+  total: number
+  page: number
+  page_size: number
+  items: ChunkItem[]
+}
+
 export interface RetrievedChunk {
   chunk_id: number
   chunk_text: string
@@ -65,7 +99,7 @@ export interface RetrievedChunk {
   row_id: string
   data_source_id: number
   similarity: number
-  source?: 'vector' | 'keyword' | 'hyde'  // 检索来源
+  source?: 'vector' | 'keyword' | 'hyde'
 }
 
 export interface ConversationTurn {
@@ -77,6 +111,9 @@ export interface AskRequest {
   question: string
   data_source_id?: number
   top_k?: number
+  enable_rewrite?: boolean
+  enable_hyde?: boolean
+  enable_sql_fallback?: boolean
   conversation_history?: ConversationTurn[]
 }
 
@@ -126,3 +163,19 @@ export type StreamEvent =
   | { type: 'token'; token: string }
   | { type: 'done'; answer: string }
   | { type: 'error'; message: string }
+
+// 管理员相关
+export interface AdminUserInfo {
+  id: number
+  username: string
+  is_active: boolean
+  is_admin: boolean
+  created_at: string
+}
+
+export interface PlatformStats {
+  total_users: number
+  total_data_sources: number
+  total_qa_history: number
+  active_users: number
+}

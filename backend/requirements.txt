@@ -21,6 +21,8 @@ PyMySQL>=1.1.0
 pdfplumber>=0.10.0
 python-docx>=1.1.0
 python-pptx>=0.6.23
+openpyxl>=3.1.0        # Excel .xlsx
+xlrd>=2.0.0            # Excel .xls（旧版）
 
 # 工具箱：PDF 转 Word（高质量，接近 WPS 效果）
 pdf2docx>=0.5.8
