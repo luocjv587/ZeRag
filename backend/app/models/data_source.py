@@ -32,5 +32,7 @@ class DataSource(Base):
     last_synced_at = Column(DateTime(timezone=True), nullable=True)
     # 整体状态: active | inactive
     status = Column(String(50), default="active")
+    # 文档分块策略: fixed | paragraph | sentence | smart（默认 smart）
+    chunk_strategy = Column(String(50), nullable=True, server_default="smart")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

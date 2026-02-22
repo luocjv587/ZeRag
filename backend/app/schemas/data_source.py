@@ -24,6 +24,8 @@ class DataSourceCreate(BaseModel):
     password: Optional[str] = None       # 明文，存储时加密
     sqlite_path: Optional[str] = None
     tables_config: Optional[List[TableConfig]] = None
+    # 分块策略: fixed | paragraph | sentence | smart
+    chunk_strategy: Optional[str] = "smart"
 
 
 class DataSourceUpdate(BaseModel):
@@ -36,6 +38,7 @@ class DataSourceUpdate(BaseModel):
     sqlite_path: Optional[str] = None
     tables_config: Optional[List[TableConfig]] = None
     status: Optional[str] = None
+    chunk_strategy: Optional[str] = None
 
 
 class DataSourceResponse(BaseModel):
@@ -54,6 +57,7 @@ class DataSourceResponse(BaseModel):
     sync_error: Optional[str] = None
     last_synced_at: Optional[datetime] = None
     status: str
+    chunk_strategy: Optional[str] = "smart"
     created_at: datetime
 
     class Config:

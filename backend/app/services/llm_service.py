@@ -1,9 +1,9 @@
 """
 阿里云通义千问 LLM 服务
-包含：基础问答 / 查询改写 / HyDE / SQL 生成
+包含：基础问答 / 流式问答 / 查询改写 / HyDE / SQL 生成
 """
 import json
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Generator
 import dashscope
 from dashscope import Generation
 from app.config import settings
@@ -16,7 +16,7 @@ def _setup_api_key():
 
 
 def chat_completion(messages: List[Dict[str, str]], model: str = "qwen-turbo") -> str:
-    """调用通义千问，返回回答文本"""
+    """调用通义千问，返回回答文本（非流式）"""
     _setup_api_key()
     try:
         response = Generation.call(
@@ -31,6 +31,36 @@ def chat_completion(messages: List[Dict[str, str]], model: str = "qwen-turbo") -
             raise Exception(f"LLM API error: {response.message}")
     except Exception as e:
         logger.error(f"LLM call failed: {e}")
+        raise
+
+
+def chat_completion_stream(
+    messages: List[Dict[str, str]],
+    model: str = "qwen-turbo",
+) -> Generator[str, None, None]:
+    """
+    调用通义千问，以流式方式逐 token yield 文本片段
+    使用 DashScope 的 stream=True + incremental_output=True
+    """
+    _setup_api_key()
+    try:
+        responses = Generation.call(
+            model=model,
+            messages=messages,
+            result_format="message",
+            stream=True,
+            incremental_output=True,
+        )
+        for chunk in responses:
+            if chunk.status_code == 200:
+                delta = chunk.output.choices[0].message.content
+                if delta:
+                    yield delta
+            else:
+                logger.error(f"DashScope stream error: {chunk.code} - {chunk.message}")
+                raise Exception(f"LLM stream error: {chunk.message}")
+    except Exception as e:
+        logger.error(f"LLM stream call failed: {e}")
         raise
 
 

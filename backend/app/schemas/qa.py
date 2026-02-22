@@ -1,6 +1,11 @@
 from pydantic import BaseModel
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from datetime import datetime
+
+
+class ConversationTurn(BaseModel):
+    role: str   # "user" | "assistant"
+    content: str
 
 
 class AskRequest(BaseModel):
@@ -11,6 +16,8 @@ class AskRequest(BaseModel):
     enable_rewrite: bool = True       # 百炼查询改写 + 关键词提取
     enable_hyde: bool = True          # HyDE 假设文档检索
     enable_sql_fallback: bool = True  # 相似度低时 SQL 兜底
+    # 多轮对话历史（按时间顺序，不含当前问题）
+    conversation_history: Optional[List[ConversationTurn]] = []
 
 
 class AskResponse(BaseModel):

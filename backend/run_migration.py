@@ -67,9 +67,26 @@ def run():
         else:
             print("  ✔  qa_history.user_id 已存在，跳过")
 
+        # ── 4. data_sources.chunk_strategy ───────────────────────────────────
+        ds_cols2 = [c["name"] for c in inspector.get_columns("data_sources")]
+        if "chunk_strategy" not in ds_cols2:
+            print("  ➕ ALTER TABLE data_sources ADD COLUMN chunk_strategy")
+            conn.execute(text(
+                "ALTER TABLE data_sources ADD COLUMN chunk_strategy VARCHAR(50) DEFAULT 'smart'"
+            ))
+            # 为已有数据源设置默认策略
+            conn.execute(text(
+                "UPDATE data_sources SET chunk_strategy = 'smart' WHERE db_type = 'file'"
+            ))
+            conn.execute(text(
+                "UPDATE data_sources SET chunk_strategy = 'fixed' WHERE db_type != 'file' AND chunk_strategy IS NULL"
+            ))
+        else:
+            print("  ✔  data_sources.chunk_strategy 已存在，跳过")
+
         conn.commit()
 
-    # ── 4. 新建表（create_all 只补充不存在的表，不影响已有表）────────────────
+    # ── 5. 新建表（create_all 只补充不存在的表，不影响已有表）────────────────
     print("  ➕ 同步新建表（pdf_convert_history 等）")
     Base.metadata.create_all(bind=engine)
 

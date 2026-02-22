@@ -5,9 +5,9 @@ RAG 核心服务（增强版）
   2. HyDE 假设文档生成
   3. 多路检索融合（向量 + HyDE向量 + 关键词）
   4. SQL 兜底（相似度过低时，百炼生成 SQL 直接查源库）
-  5. 最终回答生成
+  5. 最终回答生成（支持流式输出 & 多轮对话）
 """
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Generator
 from sqlalchemy.orm import Session
 
 from app.services.vector_store_service import (
@@ -19,6 +19,7 @@ from app.services.vector_store_service import (
 from app.services.embedding_service import embed_query
 from app.services.llm_service import (
     chat_completion,
+    chat_completion_stream,
     rewrite_query,
     generate_hyde_document,
     generate_sql_query,
@@ -129,26 +130,21 @@ def _run_sql_fallback(
         return []
 
 
-def ask(
+def _build_rag_pipeline(
     db: Session,
     question: str,
-    data_source_id: Optional[int] = None,
-    top_k: int = 5,
-    model: str = "qwen-turbo",
-    enable_rewrite: bool = True,
-    enable_hyde: bool = True,
-    enable_sql_fallback: bool = True,
-    user_id: Optional[int] = None,
-) -> Dict[str, Any]:
+    data_source_id: Optional[int],
+    top_k: int,
+    enable_rewrite: bool,
+    enable_hyde: bool,
+    enable_sql_fallback: bool,
+) -> tuple:
     """
-    增强版 RAG 问答主流程
+    执行 RAG 检索流水线，返回 (context, sql_rows, sql_used, pipeline_log, final_chunks)
     """
-    logger.info(f"RAG ask: {question}")
-    pipeline_log = []   # 记录流水线每步的行为，方便调试
+    pipeline_log = []
 
-    # ──────────────────────────────────────────
-    # Step 1：百炼查询改写 + 关键词提取
-    # ──────────────────────────────────────────
+    # Step 1：查询改写 + 关键词提取
     keywords = [question]
     query_variants = [question]
     hyde_hint = question
@@ -168,22 +164,17 @@ def ask(
         except Exception as e:
             logger.warning(f"Query rewrite failed: {e}")
 
-    # ──────────────────────────────────────────
     # Step 2：多路向量检索
-    # ──────────────────────────────────────────
-
     all_vector_results = []
     seen_chunk_ids = set()
 
-    # 2a. 原始问题向量检索
     orig_results = search_similar_chunks(db, question, top_k=top_k, data_source_id=data_source_id)
     for r in orig_results:
         if r["chunk_id"] not in seen_chunk_ids:
             all_vector_results.append(r)
             seen_chunk_ids.add(r["chunk_id"])
 
-    # 2b. 改写变体向量检索
-    for variant in query_variants[:2]:  # 最多 2 个变体，控制延迟
+    for variant in query_variants[:2]:
         if variant == question:
             continue
         variant_results = search_similar_chunks(db, variant, top_k=top_k, data_source_id=data_source_id)
@@ -192,7 +183,6 @@ def ask(
                 all_vector_results.append(r)
                 seen_chunk_ids.add(r["chunk_id"])
 
-    # 2c. HyDE 检索（生成假设文档后向量化）
     if enable_hyde:
         try:
             hyde_doc = generate_hyde_document(question, hyde_hint)
@@ -203,16 +193,12 @@ def ask(
                     r["source"] = "hyde"
                     all_vector_results.append(r)
                     seen_chunk_ids.add(r["chunk_id"])
-            logger.info(f"HyDE doc: {hyde_doc[:50]}... → {len(hyde_results)} results")
         except Exception as e:
             logger.warning(f"HyDE failed: {e}")
 
-    # 2d. 关键词精确检索
     kw_results = keyword_search(db, keywords, top_k=top_k, data_source_id=data_source_id)
     pipeline_log.append({"step": "keyword_search", "hits": len(kw_results), "keywords": keywords})
-    logger.info(f"Keyword search → {len(kw_results)} hits")
 
-    # 2e. 融合所有结果
     final_chunks = merge_results(all_vector_results, kw_results, top_k=top_k)
     max_sim = get_max_similarity(final_chunks)
     pipeline_log.append({
@@ -223,16 +209,11 @@ def ask(
     })
     logger.info(f"Merged: {len(final_chunks)} chunks, max_sim={max_sim:.3f}")
 
-    # ──────────────────────────────────────────
-    # Step 3：SQL 兜底（向量和关键词都没找到时）
-    # ──────────────────────────────────────────
+    # Step 3：SQL 兜底
     sql_rows = []
     sql_used = False
-
     no_keyword_hit = len(kw_results) == 0
     low_similarity = max_sim < SIMILARITY_THRESHOLD
-
-    # 文件类型数据源不走 SQL 兜底
     ds_for_fallback = get_data_source(db, data_source_id) if data_source_id else None
     is_file_ds = ds_for_fallback and ds_for_fallback.db_type == "file"
 
@@ -242,29 +223,70 @@ def ask(
         sql_rows = _run_sql_fallback(db, question, data_source_id)
         if sql_rows:
             sql_used = True
-            logger.info(f"SQL fallback returned {len(sql_rows)} rows")
 
-    # ──────────────────────────────────────────
-    # Step 4：构建 Prompt → 调用百炼生成答案
-    # ──────────────────────────────────────────
     context = build_context(final_chunks, sql_rows if sql_used else None)
+    return context, sql_used, pipeline_log, final_chunks
 
-    user_message = f"""【数据库内容片段】
+
+def _build_messages(
+    question: str,
+    context: str,
+    conversation_history: Optional[List[Dict]] = None,
+) -> List[Dict[str, str]]:
+    """
+    构建发给 LLM 的 messages 列表，注入对话历史（多轮对话支持）
+    """
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+    ]
+
+    # 注入最近 10 轮对话历史（避免 token 超限）
+    if conversation_history:
+        for turn in conversation_history[-10:]:
+            role = turn.get("role", "user")
+            content = turn.get("content", "")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+
+    # 当前用户消息（携带知识库上下文）
+    user_message = f"""【知识库内容片段】
 {context}
 
 【用户问题】
 {question}"""
+    messages.append({"role": "user", "content": user_message})
+    return messages
 
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_message},
-    ]
 
+def ask(
+    db: Session,
+    question: str,
+    data_source_id: Optional[int] = None,
+    top_k: int = 5,
+    model: str = "qwen-turbo",
+    enable_rewrite: bool = True,
+    enable_hyde: bool = True,
+    enable_sql_fallback: bool = True,
+    user_id: Optional[int] = None,
+    conversation_history: Optional[List[Dict]] = None,
+) -> Dict[str, Any]:
+    """
+    增强版 RAG 问答主流程（支持多轮对话）
+    """
+    logger.info(f"RAG ask: {question}")
+
+    # 执行检索流水线
+    context, sql_used, pipeline_log, final_chunks = _build_rag_pipeline(
+        db, question, data_source_id, top_k, enable_rewrite, enable_hyde, enable_sql_fallback
+    )
+
+    # 构建消息（注入对话历史）
+    messages = _build_messages(question, context, conversation_history)
+
+    # 调用 LLM 生成答案
     answer = chat_completion(messages, model=model)
 
-    # ──────────────────────────────────────────
-    # Step 5：记录问答历史
-    # ──────────────────────────────────────────
+    # 记录问答历史
     history = QAHistory(
         user_id=user_id,
         question=question,
@@ -283,6 +305,7 @@ def ask(
             "model": model,
             "pipeline": pipeline_log,
             "sql_fallback_used": sql_used,
+            "has_history": bool(conversation_history),
         },
     )
     db.add(history)
@@ -293,5 +316,78 @@ def ask(
         "answer": answer,
         "retrieved_chunks": final_chunks,
         "data_source_id": data_source_id,
-        "pipeline_log": pipeline_log,   # 前端可选展示，方便调试
+        "pipeline_log": pipeline_log,
     }
+
+
+def ask_stream(
+    db: Session,
+    question: str,
+    data_source_id: Optional[int] = None,
+    top_k: int = 5,
+    model: str = "qwen-turbo",
+    enable_rewrite: bool = True,
+    enable_hyde: bool = True,
+    enable_sql_fallback: bool = True,
+    user_id: Optional[int] = None,
+    conversation_history: Optional[List[Dict]] = None,
+) -> Generator[Dict[str, Any], None, None]:
+    """
+    流式 RAG 问答：先 yield 检索进度，再逐 token yield 答案，最后 yield 完成信号
+    """
+    import json
+    logger.info(f"RAG ask_stream: {question}")
+
+    # 执行检索流水线（非流式）
+    context, sql_used, pipeline_log, final_chunks = _build_rag_pipeline(
+        db, question, data_source_id, top_k, enable_rewrite, enable_hyde, enable_sql_fallback
+    )
+
+    # 推送检索完成事件（前端可展示溯源）
+    yield {"type": "retrieval_done", "chunks": final_chunks, "pipeline_log": pipeline_log}
+
+    # 构建消息（注入对话历史）
+    messages = _build_messages(question, context, conversation_history)
+
+    # 流式生成答案
+    full_answer = ""
+    try:
+        for token in chat_completion_stream(messages, model=model):
+            full_answer += token
+            yield {"type": "token", "token": token}
+    except Exception as e:
+        logger.error(f"Stream generation failed: {e}")
+        yield {"type": "error", "message": str(e)}
+        return
+
+    # 最终完成事件
+    yield {"type": "done", "answer": full_answer}
+
+    # 记录历史（异步写入，不影响流）
+    try:
+        history = QAHistory(
+            user_id=user_id,
+            question=question,
+            answer=full_answer,
+            data_source_id=data_source_id,
+            retrieved_chunks=[
+                {
+                    "chunk_id": c["chunk_id"],
+                    "similarity": c["similarity"],
+                    "table_name": c["table_name"],
+                    "source": c.get("source", "vector"),
+                }
+                for c in final_chunks
+            ],
+            llm_config={
+                "model": model,
+                "pipeline": pipeline_log,
+                "sql_fallback_used": sql_used,
+                "stream": True,
+                "has_history": bool(conversation_history),
+            },
+        )
+        db.add(history)
+        db.commit()
+    except Exception as e:
+        logger.error(f"Failed to save history: {e}")

@@ -23,6 +23,8 @@ export interface UploadedFile {
   size?: number
 }
 
+export type ChunkStrategy = 'fixed' | 'paragraph' | 'sentence' | 'smart'
+
 export interface DataSource {
   id: number
   name: string
@@ -39,6 +41,7 @@ export interface DataSource {
   sync_error?: string
   last_synced_at?: string
   status: 'active' | 'inactive'
+  chunk_strategy?: ChunkStrategy
   created_at: string
 }
 
@@ -52,6 +55,7 @@ export interface DataSourceCreate {
   password?: string
   sqlite_path?: string
   tables_config?: TableConfig[]
+  chunk_strategy?: ChunkStrategy
 }
 
 export interface RetrievedChunk {
@@ -64,10 +68,16 @@ export interface RetrievedChunk {
   source?: 'vector' | 'keyword' | 'hyde'  // 检索来源
 }
 
+export interface ConversationTurn {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 export interface AskRequest {
   question: string
   data_source_id?: number
   top_k?: number
+  conversation_history?: ConversationTurn[]
 }
 
 export interface AskResponse {
@@ -109,3 +119,10 @@ export interface ChatMessage {
   loading?: boolean
   pipeline_log?: PipelineStep[]
 }
+
+// Server-Sent Events 流式响应事件
+export type StreamEvent =
+  | { type: 'retrieval_done'; chunks: RetrievedChunk[]; pipeline_log: PipelineStep[] }
+  | { type: 'token'; token: string }
+  | { type: 'done'; answer: string }
+  | { type: 'error'; message: string }

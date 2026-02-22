@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import type { DataSource, DataSourceCreate, DBType, UploadedFile } from '../types'
+import type { DataSource, DataSourceCreate, DBType, UploadedFile, ChunkStrategy } from '../types'
 import { dataSourceService } from '../services/dataSource'
 
 const DB_TYPE_LABELS: Record<DBType, string> = {
@@ -25,6 +25,20 @@ const SYNC_STATUS_CONFIG = {
 
 const SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.pptx', '.ppt', '.txt', '.md']
 
+const CHUNK_STRATEGY_LABELS: Record<ChunkStrategy, string> = {
+  smart:     '🧠 智能分块（推荐）',
+  paragraph: '📄 段落分块',
+  sentence:  '📝 句子分块',
+  fixed:     '📐 固定大小分块',
+}
+
+const CHUNK_STRATEGY_DESC: Record<ChunkStrategy, string> = {
+  smart:     '自动识别文档结构，综合使用段落/句子/固定分块',
+  paragraph: '按段落（空行）分割，适合结构化文档（报告、手册）',
+  sentence:  '按句子分割，适合叙述性文本（新闻、文章）',
+  fixed:     '按固定字符数分割，适合数据库行记录',
+}
+
 const defaultForm: DataSourceCreate = {
   name: '',
   db_type: 'postgresql',
@@ -33,6 +47,7 @@ const defaultForm: DataSourceCreate = {
   database_name: '',
   username: '',
   password: '',
+  chunk_strategy: 'smart',
 }
 
 function formatFileSize(bytes: number): string {
@@ -336,6 +351,7 @@ export default function DataSources() {
                       {ds.last_synced_at && (
                         <p className="text-[10px] text-apple-gray-300 mt-0.5">
                           上次同步：{new Date(ds.last_synced_at).toLocaleString('zh-CN')}
+                          {ds.chunk_strategy && ` · 分块：${ds.chunk_strategy}`}
                         </p>
                       )}
                     </div>
@@ -481,6 +497,32 @@ export default function DataSources() {
                   />
                 </>
               )}
+
+              {/* 分块策略 */}
+              <div className="border border-apple-gray-200 rounded-xl p-3 space-y-2">
+                <p className="text-xs font-medium text-apple-black">文档分块策略</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(Object.keys(CHUNK_STRATEGY_LABELS) as ChunkStrategy[]).map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setForm((p) => ({ ...p, chunk_strategy: s }))}
+                      className={`text-left px-3 py-2 rounded-lg border text-xs transition-colors ${
+                        form.chunk_strategy === s
+                          ? 'border-blue-400 bg-blue-50 text-blue-700'
+                          : 'border-apple-gray-200 hover:border-apple-gray-300 text-apple-gray-500'
+                      }`}
+                    >
+                      <p className="font-medium">{CHUNK_STRATEGY_LABELS[s]}</p>
+                    </button>
+                  ))}
+                </div>
+                {form.chunk_strategy && (
+                  <p className="text-[10px] text-apple-gray-400 pt-1">
+                    {CHUNK_STRATEGY_DESC[form.chunk_strategy as ChunkStrategy]}
+                  </p>
+                )}
+              </div>
             </div>
 
             <div className="flex gap-3 mt-6">

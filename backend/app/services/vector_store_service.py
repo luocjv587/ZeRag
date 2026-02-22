@@ -7,7 +7,7 @@ from sqlalchemy import text
 from app.models.document_chunk import DocumentChunk
 from app.models.document_vector import DocumentVector
 from app.models.data_source import DataSource
-from app.utils.text_splitter import split_text, row_to_text
+from app.utils.text_splitter import split_text, split_text_by_strategy, row_to_text
 from app.services.embedding_service import embed_texts, embed_query
 from app.utils.logger import logger
 from datetime import datetime, timezone
@@ -44,12 +44,16 @@ def sync_file_data_source(db: Session, ds: DataSource) -> int:
     file_docs = extract_texts_from_dir(ds.file_store_dir)
     logger.info(f"文件数据源 {ds.id}：共找到 {len(file_docs)} 个可解析文件")
 
+    # 获取分块策略（文件数据源默认使用 smart 策略）
+    strategy = getattr(ds, "chunk_strategy", None) or "smart"
+    logger.info(f"文件数据源 {ds.id}：使用分块策略 '{strategy}'")
+
     total_chunks = 0
     for doc in file_docs:
         filename = doc["filename"]
         full_text = doc["text"]
-        sub_chunks = split_text(full_text, chunk_size=512, chunk_overlap=64)
-        logger.info(f"  文件 {filename}：分为 {len(sub_chunks)} 块")
+        sub_chunks = split_text_by_strategy(full_text, strategy=strategy, chunk_size=512, chunk_overlap=64)
+        logger.info(f"  文件 {filename}：分为 {len(sub_chunks)} 块（策略: {strategy}）")
 
         texts_batch: list = []
         chunks_batch: list = []
@@ -130,12 +134,15 @@ def _sync_database_source(db: Session, ds: DataSource) -> int:
         rows = connector.fetch_all_rows(table_name, columns)
         logger.info(f"Table {table_name}: {len(rows)} rows")
 
+        # 数据库行文本较短，使用 fixed 策略（或用户指定策略）
+        strategy = getattr(ds, "chunk_strategy", None) or "fixed"
+
         texts_batch: list = []
         chunks_batch: list = []
 
         for row in rows:
             row_text = row_to_text(table_name, row)
-            sub_chunks = split_text(row_text)
+            sub_chunks = split_text_by_strategy(row_text, strategy=strategy)
             row_id = str(row.get("id", ""))
 
             for idx, chunk_text in enumerate(sub_chunks):
