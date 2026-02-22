@@ -21,11 +21,32 @@ class Settings(BaseSettings):
     # 阿里云通义千问（百炼）
     DASHSCOPE_API_KEY: Optional[str] = "sk-7d93810fe48a4401843e9294cd575c59"
 
-    # 嵌入模型
-    EMBEDDING_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    EMBEDDING_DIMENSION: int = 384
+    # ── 嵌入模型 ──────────────────────────────────────────────
+    # 升级为 BAAI/bge-m3（1024 维，中英文 SOTA，支持多语言）
+    # ⚠️  如果从旧模型（384维）迁移，必须运行 migration 005 并对所有数据源重新同步
+    EMBEDDING_MODEL: str = "BAAI/bge-m3"
+    EMBEDDING_DIMENSION: int = 1024
 
-    # 应用配置
+    # ── Reranker 重排序 ────────────────────────────────────────
+    # Cross-Encoder 模型，对初步检索结果进行精细化重排
+    # 推荐：BAAI/bge-reranker-base（~280MB，中英文双语）
+    #        BAAI/bge-reranker-v2-m3（~1.1GB，更强但更慢）
+    RERANKER_MODEL: str = "BAAI/bge-reranker-base"
+    ENABLE_RERANKER: bool = True
+    # 传给 reranker 的候选池大小（先召回 top_k * RERANKER_CANDIDATE_MULTIPLIER 个候选再重排）
+    RERANKER_CANDIDATE_MULTIPLIER: int = 3
+
+    # ── 缓存 ───────────────────────────────────────────────────
+    # Embedding 缓存（LRU，避免相同查询重复向量化）
+    ENABLE_EMBEDDING_CACHE: bool = True
+    EMBEDDING_CACHE_SIZE: int = 2000    # 最多缓存的查询文本数
+
+    # RAG 结果缓存（TTL，数据源同步后自动失效）
+    ENABLE_RESULT_CACHE: bool = True
+    RESULT_CACHE_SIZE: int = 200        # 最多缓存的不同问题数
+    RESULT_CACHE_TTL: int = 300         # 缓存 TTL（秒），默认 5 分钟
+
+    # ── 应用配置 ───────────────────────────────────────────────
     APP_NAME: str = "ZeRag"
     DEBUG: bool = True
 

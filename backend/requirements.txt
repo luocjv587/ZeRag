@@ -26,3 +26,11 @@ xlrd>=2.0.0            # Excel .xls（旧版）
 
 # 工具箱：PDF 转 Word（高质量，接近 WPS 效果）
 pdf2docx>=0.5.8
+
+# ── 优化模块 ──────────────────────────────────────────────────
+# BM25 中文检索
+rank-bm25>=0.2.2           # Okapi BM25 实现
+jieba>=0.42.1              # 中文分词
+
+# 缓存
+cachetools>=5.3.0          # TTLCache / LRUCache

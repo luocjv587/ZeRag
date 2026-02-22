@@ -11,6 +11,7 @@ from app.services import data_source_service
 from app.services.vector_store_service import sync_data_source
 from app.middleware.auth import get_current_user
 from app.models.user import User
+from app.models.data_source import DataSource
 from app.models.document_chunk import DocumentChunk
 from app.services.file_processor import SUPPORTED_EXTENSIONS
 
@@ -105,8 +106,12 @@ def trigger_sync(
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")
     _check_ds_access(ds, current_user)
-    background_tasks.add_task(sync_data_source, db, ds)
-    return {"message": "同步任务已启动", "data_source_id": ds_id}
+
+    # ⚠️  重要：不能把请求级的 db session 传给 BackgroundTask。
+    # 请求返回后 session 会被关闭，后台任务继续使用会报 "Session is closed" 错误。
+    # 正确做法：后台任务内部独立创建 session，用完自己关闭。
+    background_tasks.add_task(_background_sync_task, ds_id)
+    return {"message": "同步任务已启动", "data_source_id": ds_id, "sync_progress": 0}
 
 
 @router.post("/{ds_id}/upload-files", response_model=DataSourceResponse)
@@ -199,6 +204,8 @@ def get_sync_status(
         "sync_error": ds.sync_error,
         "last_synced_at": ds.last_synced_at,
         "chunk_count": chunk_count,
+        # 新增：同步进度（0~100），前端可用于进度条展示
+        "sync_progress": getattr(ds, "sync_progress", 0) or 0,
     }
 
 
@@ -256,3 +263,24 @@ def _check_ds_access(ds, current_user: User) -> None:
         return
     if ds.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权访问该数据源")
+
+
+def _background_sync_task(ds_id: int) -> None:
+    """
+    后台同步任务：在独立的 DB session 中执行，避免复用请求 session 导致的
+    "Session is closed / DetachedInstanceError" 问题。
+    """
+    from app.database.connection import SessionLocal
+    from app.utils.logger import logger
+
+    db = SessionLocal()
+    try:
+        ds = db.query(DataSource).filter(DataSource.id == ds_id).first()
+        if ds is None:
+            logger.warning(f"Background sync: datasource {ds_id} not found")
+            return
+        sync_data_source(db, ds)
+    except Exception as e:
+        logger.error(f"Background sync task failed for datasource {ds_id}: {e}")
+    finally:
+        db.close()

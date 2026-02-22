@@ -56,6 +56,7 @@ class DataSourceResponse(BaseModel):
     sync_status: str
     sync_error: Optional[str] = None
     last_synced_at: Optional[datetime] = None
+    sync_progress: Optional[int] = 0   # 同步进度 0~100
     status: str
     chunk_strategy: Optional[str] = "smart"
     created_at: datetime

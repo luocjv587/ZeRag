@@ -1,11 +1,15 @@
 """
-RAG 核心服务（增强版）
+RAG 核心服务（增强版 v2）
 流水线：
   1. 百炼查询改写 + 关键词提取
   2. HyDE 假设文档生成
-  3. 多路检索融合（向量 + HyDE向量 + 关键词）
-  4. SQL 兜底（相似度过低时，百炼生成 SQL 直接查源库）
-  5. 最终回答生成（支持流式输出 & 多轮对话）
+  3. 多路检索融合
+     - 向量检索（原始查询 + 改写变体 + HyDE 向量）
+     - BM25 检索（jieba 分词，替代原 ILIKE 关键词匹配）
+  4. Reranker 重排序（Cross-Encoder 精细打分）
+  5. SQL 兜底（相似度过低时，百炼生成 SQL 直接查源库）
+  6. 最终回答生成（支持流式输出 & 多轮对话）
+  7. 结果缓存（相同问题 + 数据源版本未变 → 直接返回缓存）
 """
 from typing import Optional, List, Dict, Any, Generator
 from sqlalchemy.orm import Session
@@ -27,6 +31,7 @@ from app.services.llm_service import (
 from app.services.data_source_service import get_connector, get_data_source
 from app.models.qa_history import QAHistory
 from app.utils.logger import logger
+from app.config import settings
 
 # 相似度低于此阈值时触发 SQL 兜底
 SIMILARITY_THRESHOLD = 0.45
@@ -43,10 +48,19 @@ def build_context(chunks: List[Dict[str, Any]], sql_rows: Optional[List[Dict]] =
 
     if chunks:
         for i, chunk in enumerate(chunks, 1):
-            src = "关键词命中" if chunk.get("source") == "keyword" else f"语义相似 {chunk['similarity']:.0%}"
-            # table_name 在文件类型数据源中存的是文件名
+            source = chunk.get("source", "vector")
+            if source == "bm25":
+                src_label = f"BM25命中 {chunk.get('bm25_score', 0):.2f}"
+            elif source == "keyword":
+                src_label = "关键词命中"
+            else:
+                src_label = f"语义相似 {chunk['similarity']:.0%}"
+
+            if chunk.get("rerank_score") is not None:
+                src_label += f" | Rerank {chunk['rerank_score']:.3f}"
+
             source_label = chunk.get("table_name") or "未知来源"
-            parts.append(f"[片段{i}·{src}] 来源：{source_label}\n{chunk['chunk_text']}\n")
+            parts.append(f"[片段{i}·{src_label}] 来源：{source_label}\n{chunk['chunk_text']}\n")
 
     if sql_rows:
         parts.append("[SQL直接查询结果]")
@@ -70,10 +84,9 @@ def _run_sql_fallback(
         connector = get_connector(ds)
         connector.connect()
 
-        # 获取所有表的字段信息
         tables = connector.get_tables()
         schemas = []
-        for table in tables[:20]:  # 最多传 20 张表避免 token 超限
+        for table in tables[:20]:
             try:
                 cols = connector.get_columns(table)
                 schemas.append({"table": table, "columns": cols})
@@ -85,7 +98,6 @@ def _run_sql_fallback(
         logger.error(f"SQL fallback schema fetch failed: {e}")
         return []
 
-    # 百炼生成 SQL
     db_type = ds.db_type
     sql = generate_sql_query(question, schemas, db_type)
     if not sql:
@@ -94,7 +106,6 @@ def _run_sql_fallback(
 
     logger.info(f"SQL fallback generated: {sql}")
 
-    # 执行生成的 SQL
     try:
         connector = get_connector(ds)
         connector.connect()
@@ -130,7 +141,7 @@ def _run_sql_fallback(
         return []
 
 
-def _build_rag_pipeline(
+def _run_retrieval(
     db: Session,
     question: str,
     data_source_id: Optional[int],
@@ -140,11 +151,11 @@ def _build_rag_pipeline(
     enable_sql_fallback: bool,
 ) -> tuple:
     """
-    执行 RAG 检索流水线，返回 (context, sql_rows, sql_used, pipeline_log, final_chunks)
+    执行 RAG 检索流水线，返回 (context, sql_used, pipeline_log, final_chunks)
     """
     pipeline_log = []
 
-    # Step 1：查询改写 + 关键词提取
+    # ── Step 1：查询改写 + 关键词提取 ─────────────────────────
     keywords = [question]
     query_variants = [question]
     hyde_hint = question
@@ -164,11 +175,15 @@ def _build_rag_pipeline(
         except Exception as e:
             logger.warning(f"Query rewrite failed: {e}")
 
-    # Step 2：多路向量检索
+    # ── Step 2：多路向量检索 ──────────────────────────────────
+    # 召回候选池：top_k * MULTIPLIER（留给 Reranker 更多候选）
+    multiplier = settings.RERANKER_CANDIDATE_MULTIPLIER if settings.ENABLE_RERANKER else 1
+    retrieval_top_k = top_k * multiplier
+
     all_vector_results = []
     seen_chunk_ids = set()
 
-    orig_results = search_similar_chunks(db, question, top_k=top_k, data_source_id=data_source_id)
+    orig_results = search_similar_chunks(db, question, top_k=retrieval_top_k, data_source_id=data_source_id)
     for r in orig_results:
         if r["chunk_id"] not in seen_chunk_ids:
             all_vector_results.append(r)
@@ -177,7 +192,7 @@ def _build_rag_pipeline(
     for variant in query_variants[:2]:
         if variant == question:
             continue
-        variant_results = search_similar_chunks(db, variant, top_k=top_k, data_source_id=data_source_id)
+        variant_results = search_similar_chunks(db, variant, top_k=retrieval_top_k, data_source_id=data_source_id)
         for r in variant_results:
             if r["chunk_id"] not in seen_chunk_ids:
                 all_vector_results.append(r)
@@ -187,7 +202,7 @@ def _build_rag_pipeline(
         try:
             hyde_doc = generate_hyde_document(question, hyde_hint)
             pipeline_log.append({"step": "hyde", "document": hyde_doc[:80]})
-            hyde_results = search_similar_chunks(db, hyde_doc, top_k=top_k, data_source_id=data_source_id)
+            hyde_results = search_similar_chunks(db, hyde_doc, top_k=retrieval_top_k, data_source_id=data_source_id)
             for r in hyde_results:
                 if r["chunk_id"] not in seen_chunk_ids:
                     r["source"] = "hyde"
@@ -196,29 +211,66 @@ def _build_rag_pipeline(
         except Exception as e:
             logger.warning(f"HyDE failed: {e}")
 
-    kw_results = keyword_search(db, keywords, top_k=top_k, data_source_id=data_source_id)
-    pipeline_log.append({"step": "keyword_search", "hits": len(kw_results), "keywords": keywords})
+    # ── Step 3：BM25 检索（替代旧版 ILIKE 关键词匹配）────────
+    bm25_results = []
+    if data_source_id:
+        try:
+            from app.services.bm25_service import bm25_search
+            bm25_query = " ".join(keywords)
+            bm25_results = bm25_search(db, bm25_query, data_source_id, top_k=retrieval_top_k)
+            pipeline_log.append({
+                "step": "bm25_search",
+                "hits": len(bm25_results),
+                "query": bm25_query[:50],
+            })
+            logger.info(f"BM25: {len(bm25_results)} hits")
+        except Exception as e:
+            logger.warning(f"BM25 search failed, falling back to ILIKE: {e}")
+            bm25_results = keyword_search(db, keywords, top_k=retrieval_top_k, data_source_id=data_source_id)
+    else:
+        # 无特定数据源时，使用 ILIKE 全库搜索
+        bm25_results = keyword_search(db, keywords, top_k=retrieval_top_k, data_source_id=data_source_id)
+        pipeline_log.append({"step": "keyword_search", "hits": len(bm25_results)})
 
-    final_chunks = merge_results(all_vector_results, kw_results, top_k=top_k)
-    max_sim = get_max_similarity(final_chunks)
+    # ── Step 4：融合结果 ──────────────────────────────────────
+    # 此时候选池可能多达 top_k * multiplier * N 条，交给 Reranker 精选
+    candidate_chunks = merge_results(all_vector_results, bm25_results, top_k=retrieval_top_k * 2)
+
+    max_sim = get_max_similarity(candidate_chunks)
     pipeline_log.append({
         "step": "merge",
-        "total": len(final_chunks),
+        "candidates": len(candidate_chunks),
         "max_similarity": round(max_sim, 3),
-        "keyword_hits": len(kw_results),
+        "bm25_hits": len(bm25_results),
     })
-    logger.info(f"Merged: {len(final_chunks)} chunks, max_sim={max_sim:.3f}")
+    logger.info(f"Merged: {len(candidate_chunks)} candidates, max_sim={max_sim:.3f}")
 
-    # Step 3：SQL 兜底
+    # ── Step 5：Reranker 重排序 ───────────────────────────────
+    if settings.ENABLE_RERANKER and candidate_chunks:
+        try:
+            from app.services.reranker_service import rerank
+            final_chunks = rerank(question, candidate_chunks, top_k=top_k)
+            pipeline_log.append({
+                "step": "rerank",
+                "input": len(candidate_chunks),
+                "output": len(final_chunks),
+            })
+        except Exception as e:
+            logger.error(f"Reranker failed: {e}, using merged results")
+            final_chunks = candidate_chunks[:top_k]
+    else:
+        final_chunks = candidate_chunks[:top_k]
+
+    # ── Step 6：SQL 兜底 ──────────────────────────────────────
     sql_rows = []
     sql_used = False
-    no_keyword_hit = len(kw_results) == 0
+    no_bm25_hit = len(bm25_results) == 0
     low_similarity = max_sim < SIMILARITY_THRESHOLD
     ds_for_fallback = get_data_source(db, data_source_id) if data_source_id else None
     is_file_ds = ds_for_fallback and ds_for_fallback.db_type == "file"
 
-    if enable_sql_fallback and data_source_id and no_keyword_hit and low_similarity and not is_file_ds:
-        logger.info(f"Triggering SQL fallback (max_sim={max_sim:.3f}, no keyword hit)")
+    if enable_sql_fallback and data_source_id and no_bm25_hit and low_similarity and not is_file_ds:
+        logger.info(f"Triggering SQL fallback (max_sim={max_sim:.3f}, no BM25 hit)")
         pipeline_log.append({"step": "sql_fallback", "reason": f"max_sim={max_sim:.3f}"})
         sql_rows = _run_sql_fallback(db, question, data_source_id)
         if sql_rows:
@@ -233,14 +285,11 @@ def _build_messages(
     context: str,
     conversation_history: Optional[List[Dict]] = None,
 ) -> List[Dict[str, str]]:
-    """
-    构建发给 LLM 的 messages 列表，注入对话历史（多轮对话支持）
-    """
+    """构建发给 LLM 的 messages 列表，注入对话历史（多轮对话支持）"""
     messages: List[Dict[str, str]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
     ]
 
-    # 注入最近 10 轮对话历史（避免 token 超限）
     if conversation_history:
         for turn in conversation_history[-10:]:
             role = turn.get("role", "user")
@@ -248,7 +297,6 @@ def _build_messages(
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content})
 
-    # 当前用户消息（携带知识库上下文）
     user_message = f"""【知识库内容片段】
 {context}
 
@@ -271,22 +319,31 @@ def ask(
     conversation_history: Optional[List[Dict]] = None,
 ) -> Dict[str, Any]:
     """
-    增强版 RAG 问答主流程（支持多轮对话）
+    增强版 RAG 问答主流程（支持多轮对话 + 结果缓存）
     """
     logger.info(f"RAG ask: {question}")
 
-    # 执行检索流水线
-    context, sql_used, pipeline_log, final_chunks = _build_rag_pipeline(
+    # ── 结果缓存：命中则直接返回 ─────────────────────────────
+    # 注意：只有无对话历史时才走缓存（多轮对话上下文会影响答案）
+    if not conversation_history:
+        try:
+            from app.services.cache_service import get_cached_result, set_cached_result
+            cached = get_cached_result(question, data_source_id, top_k)
+            if cached is not None:
+                logger.info(f"Result cache hit: '{question[:40]}'")
+                return cached
+        except Exception as e:
+            logger.warning(f"Cache check failed: {e}")
+
+    # ── 检索流水线 ─────────────────────────────────────────────
+    context, sql_used, pipeline_log, final_chunks = _run_retrieval(
         db, question, data_source_id, top_k, enable_rewrite, enable_hyde, enable_sql_fallback
     )
 
-    # 构建消息（注入对话历史）
     messages = _build_messages(question, context, conversation_history)
-
-    # 调用 LLM 生成答案
     answer = chat_completion(messages, model=model)
 
-    # 记录问答历史
+    # ── 记录问答历史 ──────────────────────────────────────────
     history = QAHistory(
         user_id=user_id,
         question=question,
@@ -298,6 +355,7 @@ def ask(
                 "similarity": c["similarity"],
                 "table_name": c["table_name"],
                 "source": c.get("source", "vector"),
+                "rerank_score": c.get("rerank_score"),
             }
             for c in final_chunks
         ],
@@ -306,18 +364,29 @@ def ask(
             "pipeline": pipeline_log,
             "sql_fallback_used": sql_used,
             "has_history": bool(conversation_history),
+            "reranker_enabled": settings.ENABLE_RERANKER,
         },
     )
     db.add(history)
     db.commit()
 
-    return {
+    result = {
         "question": question,
         "answer": answer,
         "retrieved_chunks": final_chunks,
         "data_source_id": data_source_id,
         "pipeline_log": pipeline_log,
     }
+
+    # ── 写入结果缓存 ──────────────────────────────────────────
+    if not conversation_history:
+        try:
+            from app.services.cache_service import set_cached_result
+            set_cached_result(question, data_source_id, top_k, result)
+        except Exception as e:
+            logger.warning(f"Cache write failed: {e}")
+
+    return result
 
 
 def ask_stream(
@@ -335,21 +404,16 @@ def ask_stream(
     """
     流式 RAG 问答：先 yield 检索进度，再逐 token yield 答案，最后 yield 完成信号
     """
-    import json
     logger.info(f"RAG ask_stream: {question}")
 
-    # 执行检索流水线（非流式）
-    context, sql_used, pipeline_log, final_chunks = _build_rag_pipeline(
+    context, sql_used, pipeline_log, final_chunks = _run_retrieval(
         db, question, data_source_id, top_k, enable_rewrite, enable_hyde, enable_sql_fallback
     )
 
-    # 推送检索完成事件（前端可展示溯源）
     yield {"type": "retrieval_done", "chunks": final_chunks, "pipeline_log": pipeline_log}
 
-    # 构建消息（注入对话历史）
     messages = _build_messages(question, context, conversation_history)
 
-    # 流式生成答案
     full_answer = ""
     try:
         for token in chat_completion_stream(messages, model=model):
@@ -360,10 +424,8 @@ def ask_stream(
         yield {"type": "error", "message": str(e)}
         return
 
-    # 最终完成事件
     yield {"type": "done", "answer": full_answer}
 
-    # 记录历史（异步写入，不影响流）
     try:
         history = QAHistory(
             user_id=user_id,
@@ -376,6 +438,7 @@ def ask_stream(
                     "similarity": c["similarity"],
                     "table_name": c["table_name"],
                     "source": c.get("source", "vector"),
+                    "rerank_score": c.get("rerank_score"),
                 }
                 for c in final_chunks
             ],
@@ -385,6 +448,7 @@ def ask_stream(
                 "sql_fallback_used": sql_used,
                 "stream": True,
                 "has_history": bool(conversation_history),
+                "reranker_enabled": settings.ENABLE_RERANKER,
             },
         )
         db.add(history)

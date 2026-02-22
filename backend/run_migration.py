@@ -74,7 +74,6 @@ def run():
             conn.execute(text(
                 "ALTER TABLE data_sources ADD COLUMN chunk_strategy VARCHAR(50) DEFAULT 'smart'"
             ))
-            # 为已有数据源设置默认策略
             conn.execute(text(
                 "UPDATE data_sources SET chunk_strategy = 'smart' WHERE db_type = 'file'"
             ))
@@ -83,6 +82,27 @@ def run():
             ))
         else:
             print("  ✔  data_sources.chunk_strategy 已存在，跳过")
+
+        # ── 5. data_sources.sync_progress ────────────────────────────────────
+        ds_cols3 = [c["name"] for c in inspector.get_columns("data_sources")]
+        if "sync_progress" not in ds_cols3:
+            print("  ➕ ALTER TABLE data_sources ADD COLUMN sync_progress")
+            conn.execute(text(
+                "ALTER TABLE data_sources ADD COLUMN sync_progress INTEGER DEFAULT 0"
+            ))
+        else:
+            print("  ✔  data_sources.sync_progress 已存在，跳过")
+
+        # ── 6. document_chunks 全文检索 GIN 索引 ──────────────────────────────
+        chunk_indexes = [idx["name"] for idx in inspector.get_indexes("document_chunks")]
+        if "idx_document_chunks_fts" not in chunk_indexes:
+            print("  ➕ 创建 GIN 全文索引 idx_document_chunks_fts")
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_document_chunks_fts "
+                "ON document_chunks USING GIN (to_tsvector('simple', chunk_text))"
+            ))
+        else:
+            print("  ✔  idx_document_chunks_fts 已存在，跳过")
 
         conn.commit()
 

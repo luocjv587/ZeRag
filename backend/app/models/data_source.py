@@ -30,6 +30,8 @@ class DataSource(Base):
     sync_status = Column(String(50), default="pending")
     sync_error = Column(Text, nullable=True)
     last_synced_at = Column(DateTime(timezone=True), nullable=True)
+    # 同步进度（0~100），前端可轮询展示进度条
+    sync_progress = Column(Integer, default=0, nullable=True)
     # 整体状态: active | inactive
     status = Column(String(50), default="active")
     # 文档分块策略: fixed | paragraph | sentence | smart（默认 smart）
