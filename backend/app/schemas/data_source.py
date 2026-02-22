@@ -16,7 +16,7 @@ class UploadedFile(BaseModel):
 
 class DataSourceCreate(BaseModel):
     name: str
-    db_type: str  # mysql | postgresql | sqlite | file
+    db_type: str  # mysql | postgresql | sqlite | file | web
     host: Optional[str] = None
     port: Optional[int] = None
     database_name: Optional[str] = None
@@ -24,6 +24,8 @@ class DataSourceCreate(BaseModel):
     password: Optional[str] = None       # 明文，存储时加密
     sqlite_path: Optional[str] = None
     tables_config: Optional[List[TableConfig]] = None
+    # 网络数据源：初始 URL 列表
+    web_urls: Optional[List[str]] = None
     # 分块策略: fixed | paragraph | sentence | smart
     chunk_strategy: Optional[str] = "smart"
 
@@ -39,6 +41,7 @@ class DataSourceUpdate(BaseModel):
     tables_config: Optional[List[TableConfig]] = None
     status: Optional[str] = None
     chunk_strategy: Optional[str] = None
+    web_urls: Optional[List[str]] = None
 
 
 class DataSourceResponse(BaseModel):
@@ -53,6 +56,7 @@ class DataSourceResponse(BaseModel):
     tables_config: Optional[Any] = None
     file_store_dir: Optional[str] = None
     uploaded_files: Optional[Any] = None
+    web_urls: Optional[Any] = None
     sync_status: str
     sync_error: Optional[str] = None
     last_synced_at: Optional[datetime] = None

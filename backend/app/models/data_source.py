@@ -10,7 +10,7 @@ class DataSource(Base):
     # 创建者用户 ID（NULL 表示由超管创建、对所有管理员可见）
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(255), nullable=False)
-    # 数据源类型: mysql | postgresql | sqlite | file
+    # 数据源类型: mysql | postgresql | sqlite | file | web
     db_type = Column(String(50), nullable=False)
     host = Column(String(255), nullable=True)
     port = Column(Integer, nullable=True)
@@ -26,6 +26,8 @@ class DataSource(Base):
     file_store_dir = Column(String(500), nullable=True)
     # 已上传的文件列表：[{"filename": "xxx.pdf", "path": "/uploads/..."}]
     uploaded_files = Column(JSON, nullable=True)
+    # 网络数据源：URL 列表，["https://...", "https://..."]
+    web_urls = Column(JSON, nullable=True)
     # 同步状态: pending | syncing | synced | error
     sync_status = Column(String(50), default="pending")
     sync_error = Column(Text, nullable=True)

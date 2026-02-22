@@ -27,6 +27,11 @@ xlrd>=2.0.0            # Excel .xls（旧版）
 # 工具箱：PDF 转 Word（高质量，接近 WPS 效果）
 pdf2docx>=0.5.8
 
+# 网络数据源（URL 抓取）
+requests>=2.31.0           # HTTP 请求
+beautifulsoup4>=4.12.0     # HTML 解析
+lxml>=4.9.0                # bs4 高性能解析器
+
 # ── 优化模块 ──────────────────────────────────────────────────
 # BM25 中文检索
 rank-bm25>=0.2.2           # Okapi BM25 实现

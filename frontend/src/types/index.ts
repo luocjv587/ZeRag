@@ -11,7 +11,7 @@ export interface TokenResponse {
   token_type: string
 }
 
-export type DBType = 'mysql' | 'postgresql' | 'sqlite' | 'file'
+export type DBType = 'mysql' | 'postgresql' | 'sqlite' | 'file' | 'web'
 
 export interface TableConfig {
   table: string
@@ -38,6 +38,7 @@ export interface DataSource {
   tables_config?: TableConfig[]
   file_store_dir?: string
   uploaded_files?: UploadedFile[]
+  web_urls?: string[]
   sync_status: 'pending' | 'syncing' | 'synced' | 'error'
   sync_error?: string
   last_synced_at?: string
@@ -56,6 +57,7 @@ export interface DataSourceCreate {
   password?: string
   sqlite_path?: string
   tables_config?: TableConfig[]
+  web_urls?: string[]
   chunk_strategy?: ChunkStrategy
 }
 

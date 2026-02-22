@@ -52,6 +52,18 @@ export const dataSourceService = {
     return res.data
   },
 
+  async addWebUrl(id: number, url: string): Promise<DataSource> {
+    const res = await api.post<DataSource>(`/api/v1/data-sources/${id}/web-urls`, { url })
+    return res.data
+  },
+
+  async removeWebUrl(id: number, url: string): Promise<DataSource> {
+    const res = await api.delete<DataSource>(`/api/v1/data-sources/${id}/web-urls`, {
+      params: { url },
+    })
+    return res.data
+  },
+
   async getChunks(
     id: number,
     page = 1,

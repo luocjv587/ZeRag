@@ -7,6 +7,7 @@ const DB_TYPE_LABELS: Record<DBType, string> = {
   postgresql: 'PostgreSQL',
   sqlite: 'SQLite',
   file: '文件',
+  web: '网络',
 }
 
 const DB_TYPE_ICONS: Record<DBType, string> = {
@@ -14,6 +15,7 @@ const DB_TYPE_ICONS: Record<DBType, string> = {
   postgresql: 'PG',
   sqlite: 'SQ',
   file: '📄',
+  web: '🌐',
 }
 
 const SYNC_STATUS_CONFIG = {
@@ -247,6 +249,16 @@ function EditModal({
             />
           )}
 
+          {ds.db_type === 'web' && (
+            <div className="bg-green-50 rounded-xl px-4 py-3 text-xs text-green-700">
+              <p className="font-medium mb-1">🌐 网络数据源</p>
+              <p>URL 管理请在数据源列表中点击「管理 URL」进行操作。</p>
+              {ds.web_urls && ds.web_urls.length > 0 && (
+                <p className="mt-1 text-green-500">当前 {ds.web_urls.length} 个 URL</p>
+              )}
+            </div>
+          )}
+
           {(ds.db_type === 'postgresql' || ds.db_type === 'mysql') && (
             <>
               <div className="flex gap-3">
@@ -323,6 +335,112 @@ function EditModal({
     </div>
   )
 }
+
+// ── 网络 URL 管理面板 ────────────────────────────────────────────────────────
+
+function WebUrlPanel({ ds, onRefresh, showToast }: {
+  ds: DataSource
+  onRefresh: () => void
+  showToast: (msg: string) => void
+}) {
+  const [inputUrl, setInputUrl] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [deletingUrl, setDeletingUrl] = useState<string | null>(null)
+
+  const handleAdd = async () => {
+    const url = inputUrl.trim()
+    if (!url) return
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      showToast('URL 必须以 http:// 或 https:// 开头')
+      return
+    }
+    setAdding(true)
+    try {
+      await dataSourceService.addWebUrl(ds.id, url)
+      setInputUrl('')
+      onRefresh()
+      showToast('URL 已添加')
+    } catch {
+      showToast('添加失败，请重试')
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  const handleDelete = async (url: string) => {
+    if (!confirm(`确认移除该 URL？\n${url}`)) return
+    setDeletingUrl(url)
+    try {
+      await dataSourceService.removeWebUrl(ds.id, url)
+      onRefresh()
+      showToast('URL 已移除')
+    } catch {
+      showToast('移除失败')
+    } finally {
+      setDeletingUrl(null)
+    }
+  }
+
+  const webUrls: string[] = ds.web_urls || []
+
+  return (
+    <div className="mt-3 border-t border-apple-gray-100 pt-3 space-y-3">
+      {/* 提示信息 */}
+      <div className="bg-blue-50 rounded-xl px-4 py-3 text-xs text-blue-600">
+        <p className="font-medium mb-1">🌐 网络数据源</p>
+        <p>添加网页 URL，系统会自动抓取页面内容并建立向量索引。</p>
+        <p className="mt-1 text-blue-400">
+          注意：腾讯文档、Google Docs 等需要登录或 JS 渲染的页面可能无法完整抓取。
+        </p>
+      </div>
+
+      {/* 输入添加 */}
+      <div className="flex gap-2">
+        <input
+          type="url"
+          placeholder="输入网址，如 https://example.com/article"
+          value={inputUrl}
+          onChange={(e) => setInputUrl(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          className="input-base flex-1 text-xs"
+        />
+        <button
+          onClick={handleAdd}
+          disabled={adding || !inputUrl.trim()}
+          className="btn-primary text-xs px-4 shrink-0 disabled:opacity-50"
+        >
+          {adding ? '添加中…' : '添加'}
+        </button>
+      </div>
+
+      {/* URL 列表 */}
+      {webUrls.length > 0 && (
+        <div className="space-y-1">
+          {webUrls.map((url) => (
+            <div key={url} className="flex items-center justify-between bg-apple-gray-50 rounded-lg px-3 py-2 gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-base shrink-0">🔗</span>
+                <p className="text-xs text-apple-black truncate" title={url}>{url}</p>
+              </div>
+              <button
+                onClick={() => handleDelete(url)}
+                disabled={deletingUrl === url}
+                className="shrink-0 text-xs text-apple-gray-300 hover:text-red-400 transition-colors ml-2"
+              >
+                {deletingUrl === url ? '移除中…' : '移除'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {webUrls.length === 0 && (
+        <p className="text-xs text-apple-gray-400 text-center py-3">暂无 URL，请添加后同步</p>
+      )}
+    </div>
+  )
+}
+
 
 // ── 文件管理面板 ─────────────────────────────────────────────────────────────
 
@@ -482,6 +600,7 @@ export default function DataSources() {
   const [actionLoading, setActionLoading] = useState<Record<number, string>>({})
   const [toast, setToast] = useState('')
   const [expandedFileDs, setExpandedFileDs] = useState<Set<number>>(new Set())
+  const [expandedWebDs, setExpandedWebDs] = useState<Set<number>>(new Set())
   const [chunkCounts, setChunkCounts] = useState<Record<number, number>>({})
   // 轮询中的数据源 ID 集合
   const pollingRef = useRef<Record<number, ReturnType<typeof setInterval>>>({})
@@ -554,6 +673,9 @@ export default function DataSources() {
       if (created.db_type === 'file') {
         setExpandedFileDs((prev) => new Set(prev).add(created.id))
       }
+      if (created.db_type === 'web') {
+        setExpandedWebDs((prev) => new Set(prev).add(created.id))
+      }
     } catch {
       showToast('创建失败，请检查配置')
     } finally {
@@ -598,6 +720,15 @@ export default function DataSources() {
 
   const toggleFileExpand = (id: number) => {
     setExpandedFileDs((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleWebExpand = (id: number) => {
+    setExpandedWebDs((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -652,8 +783,23 @@ export default function DataSources() {
           {list.map((ds) => {
             const statusCfg = SYNC_STATUS_CONFIG[ds.sync_status] || SYNC_STATUS_CONFIG.pending
             const isFile = ds.db_type === 'file'
+            const isWeb = ds.db_type === 'web'
             const isExpanded = expandedFileDs.has(ds.id)
+            const isWebExpanded = expandedWebDs.has(ds.id)
             const chunkCount = chunkCounts[ds.id]
+
+            // 同步按钮是否禁用
+            const syncDisabled =
+              !!actionLoading[ds.id] ||
+              ds.sync_status === 'syncing' ||
+              (isFile && (!ds.uploaded_files || ds.uploaded_files.length === 0)) ||
+              (isWeb && (!ds.web_urls || ds.web_urls.length === 0))
+            const syncTitle =
+              (isFile && (!ds.uploaded_files || ds.uploaded_files.length === 0))
+                ? '请先上传文件再同步'
+                : (isWeb && (!ds.web_urls || ds.web_urls.length === 0))
+                ? '请先添加 URL 再同步'
+                : ''
 
             return (
               <div key={ds.id} className="card px-5 py-4">
@@ -663,6 +809,8 @@ export default function DataSources() {
                     <div className="w-9 h-9 bg-apple-gray-100 rounded-lg flex items-center justify-center shrink-0">
                       {isFile ? (
                         <span className="text-base">📁</span>
+                      ) : isWeb ? (
+                        <span className="text-base">🌐</span>
                       ) : (
                         <span className="text-[10px] font-bold text-apple-gray-500 uppercase">
                           {DB_TYPE_ICONS[ds.db_type]}
@@ -677,8 +825,9 @@ export default function DataSources() {
                         {ds.database_name && ` · ${ds.database_name}`}
                         {ds.sqlite_path && ` · ${ds.sqlite_path}`}
                         {isFile && ds.uploaded_files && ` · ${ds.uploaded_files.length} 个文件`}
+                        {isWeb && ds.web_urls && ` · ${ds.web_urls.length} 个 URL`}
                       </p>
-                        <p className="text-[10px] text-apple-gray-300 mt-0.5">
+                      <p className="text-[10px] text-apple-gray-300 mt-0.5">
                         {ds.last_synced_at
                           ? `上次同步：${new Date(ds.last_synced_at).toLocaleString('zh-CN')}`
                           : '尚未同步'
@@ -708,8 +857,14 @@ export default function DataSources() {
                         {isExpanded ? '收起文件' : '管理文件'}
                       </button>
                     )}
-                    {/* 非文件类型 */}
-                    {!isFile && (
+                    {/* 网络类型 */}
+                    {isWeb && (
+                      <button onClick={() => toggleWebExpand(ds.id)} className="btn-ghost text-xs">
+                        {isWebExpanded ? '收起 URL' : '管理 URL'}
+                      </button>
+                    )}
+                    {/* 数据库类型：测试连接 */}
+                    {!isFile && !isWeb && (
                       <button
                         onClick={() => handleTest(ds.id)}
                         disabled={!!actionLoading[ds.id]}
@@ -730,13 +885,9 @@ export default function DataSources() {
                     </button>
                     <button
                       onClick={() => handleSync(ds.id)}
-                      disabled={
-                        !!actionLoading[ds.id] ||
-                        ds.sync_status === 'syncing' ||
-                        (isFile && (!ds.uploaded_files || ds.uploaded_files.length === 0))
-                      }
+                      disabled={syncDisabled}
                       className="btn-ghost text-xs"
-                      title={isFile && (!ds.uploaded_files || ds.uploaded_files.length === 0) ? '请先上传文件再同步' : ''}
+                      title={syncTitle}
                     >
                       {ds.sync_status === 'syncing' ? (
                         <span className="flex items-center gap-1">
@@ -761,6 +912,11 @@ export default function DataSources() {
                 {/* 文件管理面板 */}
                 {isFile && isExpanded && (
                   <FilePanel ds={ds} onRefresh={fetchList} showToast={showToast} />
+                )}
+
+                {/* URL 管理面板 */}
+                {isWeb && isWebExpanded && (
+                  <WebUrlPanel ds={ds} onRefresh={fetchList} showToast={showToast} />
                 )}
               </div>
             )
@@ -798,6 +954,7 @@ export default function DataSources() {
                 <option value="mysql">MySQL</option>
                 <option value="sqlite">SQLite</option>
                 <option value="file">📄 文件（PDF / Word / PPT）</option>
+                <option value="web">🌐 网络（网页 URL）</option>
               </select>
 
               {form.db_type === 'file' && (
@@ -805,6 +962,14 @@ export default function DataSources() {
                   <p className="font-medium mb-1">📁 文件知识库</p>
                   <p>创建后，在数据源列表点击「管理文件」上传文档，再点击「同步」建立向量索引。</p>
                   <p className="mt-1 text-blue-400">支持格式：.pdf · .docx · .doc · .pptx · .ppt · .txt · .md · .xlsx · .xls</p>
+                </div>
+              )}
+
+              {form.db_type === 'web' && (
+                <div className="bg-green-50 rounded-xl px-4 py-3 text-xs text-green-700">
+                  <p className="font-medium mb-1">🌐 网络数据源</p>
+                  <p>创建后，在数据源列表点击「管理 URL」添加网页地址，再点击「同步」抓取内容并建立向量索引。</p>
+                  <p className="mt-1 text-green-500">支持任意公开可访问的网页。腾讯文档、Google Docs 等需要登录的页面可能无法完整抓取。</p>
                 </div>
               )}
 

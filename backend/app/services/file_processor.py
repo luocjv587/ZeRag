@@ -260,3 +260,108 @@ def extract_texts_from_dir(dir_path: str) -> List[dict]:
             continue
 
     return results
+
+
+# ─── 网络 URL 提取 ─────────────────────────────────────────────────────────────
+
+def extract_text_from_url(url: str, timeout: int = 30) -> dict:
+    """
+    从网络 URL 抓取并提取文本内容。
+    返回：{"url": str, "title": str, "text": str}
+
+    注意：对于需要 JavaScript 渲染（如腾讯文档、Google Docs 等）的页面，
+    此方法仅能获取页面的静态 HTML 内容，可能无法获取完整数据。
+    """
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+    except ImportError:
+        raise ImportError("requests 或 beautifulsoup4 未安装，请运行: pip install requests beautifulsoup4 lxml")
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    }
+
+    logger.info(f"正在抓取 URL: {url}")
+    resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+    resp.raise_for_status()
+
+    # 自动检测编码
+    content_type = resp.headers.get("content-type", "")
+    if "charset=" in content_type:
+        encoding = content_type.split("charset=")[-1].split(";")[0].strip()
+        resp.encoding = encoding
+    else:
+        resp.encoding = resp.apparent_encoding or "utf-8"
+
+    soup = BeautifulSoup(resp.text, "lxml")
+
+    # 提取标题
+    title_tag = soup.find("title")
+    title = title_tag.get_text(strip=True) if title_tag else url
+
+    # 移除干扰元素
+    for tag in soup(["script", "style", "noscript", "nav", "footer",
+                     "header", "aside", "iframe", "svg", "button", "form"]):
+        tag.decompose()
+
+    # 优先提取正文区域
+    main_content = (
+        soup.find("main") or
+        soup.find("article") or
+        soup.find(id="content") or
+        soup.find(class_="content") or
+        soup.find(id="main") or
+        soup.body
+    )
+    if main_content is None:
+        main_content = soup
+
+    # 提取文本，保留段落结构
+    lines = []
+    for element in main_content.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6",
+                                           "li", "td", "th", "div", "span"]):
+        text = element.get_text(separator=" ", strip=True)
+        if text and len(text) > 5:  # 过滤极短噪音
+            lines.append(text)
+
+    # 去重并合并
+    seen = set()
+    unique_lines = []
+    for line in lines:
+        if line not in seen:
+            seen.add(line)
+            unique_lines.append(line)
+
+    full_text = "\n".join(unique_lines)
+
+    # 如果正文提取为空，回退到全文本
+    if not full_text.strip():
+        full_text = soup.get_text(separator="\n", strip=True)
+
+    logger.info(f"URL 抓取完成: {url}，标题={title!r}，字符数={len(full_text)}")
+    return {"url": url, "title": title, "text": full_text}
+
+
+def extract_texts_from_urls(urls: list) -> list:
+    """
+    批量抓取 URL 列表，返回：[{"url": str, "title": str, "text": str}]
+    单个 URL 失败不影响其他 URL。
+    """
+    results = []
+    for url in urls:
+        try:
+            doc = extract_text_from_url(url)
+            if doc["text"].strip():
+                results.append(doc)
+            else:
+                logger.warning(f"URL {url} 提取内容为空，已跳过")
+        except Exception as e:
+            logger.error(f"跳过 URL {url}: {e}")
+    return results

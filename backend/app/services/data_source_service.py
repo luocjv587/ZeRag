@@ -22,6 +22,8 @@ def get_connector(ds: DataSource) -> BaseConnector:
         return SQLiteConnector(ds.sqlite_path)
     elif ds.db_type == "file":
         raise ValueError("文件类型数据源不使用数据库连接器")
+    elif ds.db_type == "web":
+        raise ValueError("网络数据源不使用数据库连接器")
     else:
         raise ValueError(f"Unsupported db_type: {ds.db_type}")
 
@@ -59,6 +61,12 @@ def create_data_source(db: Session, data: DataSourceCreate, owner_id: Optional[i
         store_dir = _get_file_store_dir(ds.id)
         ds.file_store_dir = store_dir
         ds.uploaded_files = []
+        db.commit()
+        db.refresh(ds)
+
+    # 网络类型：初始化 URL 列表
+    if data.db_type == "web":
+        ds.web_urls = list(data.web_urls) if data.web_urls else []
         db.commit()
         db.refresh(ds)
 
@@ -113,6 +121,18 @@ def test_data_source_connection(db: Session, ds_id: int) -> bool:
     if ds.db_type == "file":
         # 文件类型：检查目录是否存在
         return bool(ds.file_store_dir and os.path.isdir(ds.file_store_dir))
+    if ds.db_type == "web":
+        # 网络类型：尝试访问第一个 URL
+        urls = ds.web_urls or []
+        if not urls:
+            return False
+        try:
+            import requests as req
+            resp = req.get(urls[0], timeout=10, allow_redirects=True,
+                           headers={"User-Agent": "Mozilla/5.0"})
+            return resp.status_code < 400
+        except Exception:
+            return False
     connector = get_connector(ds)
     return connector.test_connection()
 
@@ -130,6 +150,28 @@ def add_uploaded_file(db: Session, ds: DataSource, filename: str, file_path: str
     ds.uploaded_files = uploaded_files
     db.commit()
     db.refresh(ds)
+    return ds
+
+
+def add_web_url(db: Session, ds: DataSource, url: str) -> DataSource:
+    """向网络数据源添加一个 URL（去重）"""
+    web_urls = list(ds.web_urls or [])
+    if url not in web_urls:
+        web_urls.append(url)
+        ds.web_urls = web_urls
+        db.commit()
+        db.refresh(ds)
+    return ds
+
+
+def remove_web_url(db: Session, ds: DataSource, url: str) -> DataSource:
+    """从网络数据源删除一个 URL"""
+    web_urls = list(ds.web_urls or [])
+    if url in web_urls:
+        web_urls.remove(url)
+        ds.web_urls = web_urls
+        db.commit()
+        db.refresh(ds)
     return ds
 
 

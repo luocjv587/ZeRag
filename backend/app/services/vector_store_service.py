@@ -98,6 +98,69 @@ def sync_file_data_source(db: Session, ds: DataSource) -> int:
     return total_chunks
 
 
+def sync_web_data_source(db: Session, ds: DataSource) -> int:
+    """
+    同步网络类型数据源：抓取 URL → 提取文本 → 分块 → 向量化 → 存储
+    """
+    from app.services.file_processor import extract_texts_from_urls
+
+    urls = list(ds.web_urls or [])
+    if not urls:
+        raise ValueError("网络数据源未配置任何 URL，无法同步")
+
+    _update_sync_progress(db, ds, 5)
+
+    # 删除旧的分块和向量
+    db.query(DocumentChunk).filter(DocumentChunk.data_source_id == ds.id).delete()
+    db.commit()
+
+    web_docs = extract_texts_from_urls(urls)
+    logger.info(f"网络数据源 {ds.id}：共成功抓取 {len(web_docs)} / {len(urls)} 个 URL")
+
+    if not web_docs:
+        raise ValueError("所有 URL 抓取均失败或内容为空，请检查 URL 是否可访问")
+
+    strategy = getattr(ds, "chunk_strategy", None) or "smart"
+    logger.info(f"网络数据源 {ds.id}：使用分块策略 '{strategy}'")
+
+    total_chunks = 0
+    for doc_idx, doc in enumerate(web_docs):
+        url = doc["url"]
+        title = doc.get("title", url)
+        full_text = doc["text"]
+
+        # 在文本头部加入来源信息，方便检索时溯源
+        enriched_text = f"[来源：{title}]\n[URL：{url}]\n\n{full_text}"
+        sub_chunks = split_text_by_strategy(enriched_text, strategy=strategy, chunk_size=512, chunk_overlap=64)
+        logger.info(f"  URL {url}：分为 {len(sub_chunks)} 块（策略: {strategy}）")
+
+        texts_batch: list = []
+        chunks_batch: list = []
+
+        for idx, chunk_text in enumerate(sub_chunks):
+            chunk = DocumentChunk(
+                data_source_id=ds.id,
+                table_name=title[:200],   # 用页面标题作为来源标识
+                row_id=str(idx),
+                chunk_text=chunk_text,
+                chunk_index=idx,
+                metadata_={"url": url, "title": title, "chunk_index": idx},
+            )
+            db.add(chunk)
+            db.flush()
+            chunks_batch.append(chunk)
+            texts_batch.append(chunk_text)
+
+        total_chunks += _embed_and_store(db, chunks_batch, texts_batch)
+
+        # 更新进度（10%~90%）
+        progress = 10 + int(80 * (doc_idx + 1) / max(len(web_docs), 1))
+        _update_sync_progress(db, ds, progress)
+
+    db.commit()
+    return total_chunks
+
+
 def sync_data_source(db: Session, ds: DataSource) -> int:
     """
     同步数据源：提取数据 → 分块 → 向量化 → 存储
@@ -114,6 +177,8 @@ def sync_data_source(db: Session, ds: DataSource) -> int:
     try:
         if ds.db_type == "file":
             total_chunks = sync_file_data_source(db, ds)
+        elif ds.db_type == "web":
+            total_chunks = sync_web_data_source(db, ds)
         else:
             total_chunks = _sync_database_source(db, ds)
 

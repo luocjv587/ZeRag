@@ -93,6 +93,16 @@ def run():
         else:
             print("  ✔  data_sources.sync_progress 已存在，跳过")
 
+        # ── 7. data_sources.web_urls ──────────────────────────────────────────
+        ds_cols4 = [c["name"] for c in inspector.get_columns("data_sources")]
+        if "web_urls" not in ds_cols4:
+            print("  ➕ ALTER TABLE data_sources ADD COLUMN web_urls")
+            conn.execute(text(
+                "ALTER TABLE data_sources ADD COLUMN web_urls JSONB"
+            ))
+        else:
+            print("  ✔  data_sources.web_urls 已存在，跳过")
+
         # ── 6. document_chunks 全文检索 GIN 索引 ──────────────────────────────
         chunk_indexes = [idx["name"] for idx in inspector.get_indexes("document_chunks")]
         if "idx_document_chunks_fts" not in chunk_indexes:

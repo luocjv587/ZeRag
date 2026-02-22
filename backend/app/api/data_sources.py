@@ -169,6 +169,48 @@ async def upload_files(
     return ds
 
 
+class WebUrlBody(BaseModel):
+    url: str
+
+
+@router.post("/{ds_id}/web-urls", response_model=DataSourceResponse)
+def add_web_url(
+    ds_id: int,
+    body: WebUrlBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """向网络数据源添加一个 URL"""
+    ds = data_source_service.get_data_source(db, ds_id)
+    if not ds:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    if ds.db_type != "web":
+        raise HTTPException(status_code=400, detail="该数据源不是网络类型")
+    _check_ds_access(ds, current_user)
+    if not body.url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="URL 必须以 http:// 或 https:// 开头")
+    ds = data_source_service.add_web_url(db, ds, body.url)
+    return ds
+
+
+@router.delete("/{ds_id}/web-urls", response_model=DataSourceResponse)
+def remove_web_url(
+    ds_id: int,
+    url: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """从网络数据源删除一个 URL（url 作为 query 参数传入）"""
+    ds = data_source_service.get_data_source(db, ds_id)
+    if not ds:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    if ds.db_type != "web":
+        raise HTTPException(status_code=400, detail="该数据源不是网络类型")
+    _check_ds_access(ds, current_user)
+    ds = data_source_service.remove_web_url(db, ds, url)
+    return ds
+
+
 @router.delete("/{ds_id}/files/{filename}", response_model=DataSourceResponse)
 def delete_uploaded_file(
     ds_id: int,
