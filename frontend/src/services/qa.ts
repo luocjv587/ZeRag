@@ -39,7 +39,8 @@ export const qaService = {
 
     const run = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/v1/qa/ask/stream', {
+        const baseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
+        const response = await fetch(`${baseUrl}/api/v1/qa/ask/stream`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

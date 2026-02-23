@@ -1,0 +1,77 @@
+services:
+
+  # ── 后端（FastAPI + uvicorn）────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: zerag-backend
+    restart: unless-stopped
+    environment:
+      # 数据库（必填，指向外部 PostgreSQL）
+      DATABASE_URL: ${DATABASE_URL}
+      # 安全密钥（必填，生产环境请使用强随机字符串）
+      SECRET_KEY: ${SECRET_KEY}
+      # 通义千问 API Key（必填）
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      # 数据源密码加密密钥
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      # CORS：允许来自前端 nginx 的请求（按实际域名修改）
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      # 嵌入模型（默认 BAAI/bge-m3）
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}
+      # Reranker 模型
+      RERANKER_MODEL: ${RERANKER_MODEL:-BAAI/bge-reranker-base}
+      ENABLE_RERANKER: ${ENABLE_RERANKER:-true}
+      # 其他可选配置
+      DEBUG: "false"
+      ALLOW_REGISTER: ${ALLOW_REGISTER:-false}
+    volumes:
+      # 用户上传文件持久化
+      - uploads_data:/app/uploads
+      # HuggingFace 模型缓存（支持手动放置模型，见 ./models/README.md）
+      # 方式1：使用 bind mount（手动放置模型，推荐）
+      - ./models:/app/.cache/huggingface
+      # 方式2：使用 volume（自动下载，取消注释下面这行，并注释掉上面那行）
+      # - model_cache:/app/.cache/huggingface
+    expose:
+      - "8000"
+    networks:
+      - zerag-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s   # 等待模型加载
+
+  # ── 前端（React + nginx）────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # 留空 = 使用相对路径由 nginx 反代；如需直连后端改为 http://your-server:8000
+        VITE_API_BASE_URL: ""
+    container_name: zerag-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - zerag-net
+
+# ── 持久化卷 ────────────────────────────────────────────────────
+volumes:
+  uploads_data:
+    driver: local
+  model_cache:
+    driver: local
+
+# ── 内部网络 ────────────────────────────────────────────────────
+networks:
+  zerag-net:
+    driver: bridge

@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.env
+.env.*
+venv/
+.venv/
+env/
+
+# 上传文件（通过 volume 挂载，不打入镜像）
+uploads/
+
+# 开发/测试文件
+*.sqlite
+*.db
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp

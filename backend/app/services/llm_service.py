@@ -37,31 +37,61 @@ def chat_completion(messages: List[Dict[str, str]], model: str = "qwen-turbo") -
 def chat_completion_stream(
     messages: List[Dict[str, str]],
     model: str = "qwen-turbo",
+    max_retries: int = 2,
 ) -> Generator[str, None, None]:
     """
     调用通义千问，以流式方式逐 token yield 文本片段
     使用 DashScope 的 stream=True + incremental_output=True
+
+    生产环境注意：dashscope 内部使用 httpx，在高并发或连接中断场景下
+    httpx client 可能已被关闭，因此加入重试机制避免 "client has been closed" 报错。
     """
     _setup_api_key()
-    try:
-        responses = Generation.call(
-            model=model,
-            messages=messages,
-            result_format="message",
-            stream=True,
-            incremental_output=True,
-        )
-        for chunk in responses:
-            if chunk.status_code == 200:
-                delta = chunk.output.choices[0].message.content
-                if delta:
-                    yield delta
-            else:
-                logger.error(f"DashScope stream error: {chunk.code} - {chunk.message}")
-                raise Exception(f"LLM stream error: {chunk.message}")
-    except Exception as e:
-        logger.error(f"LLM stream call failed: {e}")
-        raise
+
+    last_error: Exception = None
+    for attempt in range(max_retries + 1):
+        try:
+            responses = Generation.call(
+                model=model,
+                messages=messages,
+                result_format="message",
+                stream=True,
+                incremental_output=True,
+            )
+            for chunk in responses:
+                if chunk.status_code == 200:
+                    delta = chunk.output.choices[0].message.content
+                    if delta:
+                        yield delta
+                else:
+                    logger.error(f"DashScope stream error: {chunk.code} - {chunk.message}")
+                    raise Exception(f"LLM stream error: {chunk.message}")
+            return  # 正常结束，退出重试循环
+        except GeneratorExit:
+            # 客户端主动断开，不重试，直接退出
+            return
+        except Exception as e:
+            last_error = e
+            err_msg = str(e)
+            # 只有 httpx client 被关闭时才重试；其他错误直接抛出
+            if "client has been closed" in err_msg.lower() and attempt < max_retries:
+                logger.warning(
+                    f"DashScope httpx client was closed (attempt {attempt + 1}/{max_retries + 1}), retrying..."
+                )
+                # 重置 dashscope 内部 HTTP 客户端
+                try:
+                    import dashscope as _ds
+                    if hasattr(_ds, "_client") and _ds._client is not None:
+                        _ds._client = None
+                except Exception:
+                    pass
+                continue
+            logger.error(f"LLM stream call failed: {e}")
+            raise
+
+    # 所有重试均失败
+    logger.error(f"LLM stream call failed after {max_retries + 1} attempts: {last_error}")
+    raise last_error
 
 
 # ─────────────────────────────────────────────

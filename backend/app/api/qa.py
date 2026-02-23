@@ -60,6 +60,7 @@ def ask_question_stream(
     history = [h.model_dump() for h in (data.conversation_history or [])]
 
     def event_generator():
+        gen = None
         try:
             if data.mode == "chat":
                 gen = ask_chat_stream(
@@ -82,8 +83,17 @@ def ask_question_stream(
                 )
             for event in gen:
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except GeneratorExit:
+            # 前端主动断开连接：显式关闭下游生成器，确保 dashscope 的 httpx 连接被释放
+            if gen is not None:
+                gen.close()
+            return
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+        finally:
+            # 兜底：确保生成器一定被关闭（释放 dashscope httpx 连接资源）
+            if gen is not None:
+                gen.close()
 
     return StreamingResponse(
         event_generator(),

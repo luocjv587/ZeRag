@@ -1,0 +1,10 @@
+# 忽略所有模型文件（文件较大，不应提交到 git）
+hub/
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# 但保留 README.md 和 .gitkeep
+!.gitkeep
+!README.md
