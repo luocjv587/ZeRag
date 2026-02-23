@@ -16,11 +16,10 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS 配置（允许前端访问，来源从环境变量读取）
-_cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+# CORS 配置（允许前端访问）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

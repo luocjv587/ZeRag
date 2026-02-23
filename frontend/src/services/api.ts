@@ -1,8 +1,7 @@
 import axios from 'axios'
 
 const api = axios.create({
-  // 生产环境通过 nginx 反代，使用相对路径；本地开发可通过 VITE_API_BASE_URL 指定
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? '',
+  baseURL: 'http://localhost:8000',
   timeout: 60000,
 })
 

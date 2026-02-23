@@ -59,9 +59,6 @@ class Settings(BaseSettings):
     # 是否允许用户自助注册（false 时只有超管能创建账号）
     ALLOW_REGISTER: bool = True
 
-    # CORS 允许的来源（逗号分隔），生产环境建议填写具体域名
-    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://localhost"
-
     class Config:
         env_file = ".env"
         case_sensitive = True
