@@ -22,10 +22,10 @@ class Settings(BaseSettings):
     DASHSCOPE_API_KEY: Optional[str] = "sk-7d93810fe48a4401843e9294cd575c59"
 
     # ── 嵌入模型 ──────────────────────────────────────────────
-    # 升级为 BAAI/bge-m3（1024 维，中英文 SOTA，支持多语言）
-    # ⚠️  如果从旧模型（384维）迁移，必须运行 migration 005 并对所有数据源重新同步
-    EMBEDDING_MODEL: str = "BAAI/bge-m3"
-    EMBEDDING_DIMENSION: int = 1024
+    # 使用 384 维模型（sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2）
+    # ⚠️  如果从其他维度迁移，必须运行 migration 005 并对所有数据源重新同步
+    EMBEDDING_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    EMBEDDING_DIMENSION: int = 384
 
     # ── Reranker 重排序 ────────────────────────────────────────
     # Cross-Encoder 模型，对初步检索结果进行精细化重排

@@ -1,6 +1,6 @@
 """
 嵌入（向量化）服务
-使用 sentence-transformers 本地模型（默认 BAAI/bge-m3，1024 维）
+使用 sentence-transformers 本地模型（默认 384 维）
 
 优化：
   - embed_query 接入 LRU 缓存，相同查询文本只向量化一次
