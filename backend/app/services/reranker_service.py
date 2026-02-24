@@ -4,6 +4,7 @@ Reranker 重排序服务
 优点：相比向量相似度，cross-encoder 能同时理解 query 与 chunk 的联合语义，精度更高。
 默认模型：BAAI/bge-reranker-base（中英文双语，约 280MB，平衡速度与效果）
 """
+import os
 from typing import List, Dict, Any
 
 from app.config import settings
@@ -12,10 +13,21 @@ from app.utils.logger import logger
 _reranker = None
 
 
+def _setup_hf_mirror():
+    """配置 Hugging Face 镜像源（国内服务器使用）"""
+    if settings.HF_ENDPOINT:
+        # 设置 Hugging Face 镜像端点
+        os.environ["HF_ENDPOINT"] = settings.HF_ENDPOINT
+        # 确保 huggingface_hub 使用镜像源
+        os.environ["HUGGINGFACE_HUB_ENDPOINT"] = settings.HF_ENDPOINT
+        logger.info(f"Using Hugging Face mirror: {settings.HF_ENDPOINT}")
+
+
 def get_reranker():
     """懒加载 Cross-Encoder 模型（进程级单例）"""
     global _reranker
     if _reranker is None:
+        _setup_hf_mirror()
         from sentence_transformers import CrossEncoder
         logger.info(f"Loading reranker model: {settings.RERANKER_MODEL}")
         _reranker = CrossEncoder(settings.RERANKER_MODEL)

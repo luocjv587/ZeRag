@@ -6,6 +6,7 @@
   - embed_query 接入 LRU 缓存，相同查询文本只向量化一次
   - embed_texts 保持批量接口不变（同步数据源时使用，不走缓存）
 """
+import os
 from typing import List
 
 from sentence_transformers import SentenceTransformer
@@ -16,9 +17,20 @@ from app.utils.logger import logger
 _model: SentenceTransformer = None
 
 
+def _setup_hf_mirror():
+    """配置 Hugging Face 镜像源（国内服务器使用）"""
+    if settings.HF_ENDPOINT:
+        # 设置 Hugging Face 镜像端点
+        os.environ["HF_ENDPOINT"] = settings.HF_ENDPOINT
+        # 确保 huggingface_hub 使用镜像源
+        os.environ["HUGGINGFACE_HUB_ENDPOINT"] = settings.HF_ENDPOINT
+        logger.info(f"Using Hugging Face mirror: {settings.HF_ENDPOINT}")
+
+
 def get_model() -> SentenceTransformer:
     global _model
     if _model is None:
+        _setup_hf_mirror()
         logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL}")
         _model = SentenceTransformer(settings.EMBEDDING_MODEL)
         logger.info(

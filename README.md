@@ -41,6 +41,9 @@ DATABASE_URL=postgresql://postgres:your_password@localhost:5432/zerag
 SECRET_KEY=your-random-secret-key
 ENCRYPTION_KEY=        # 运行下方命令生成
 DASHSCOPE_API_KEY=     # 阿里云通义千问 API Key
+
+# 国内服务器配置（无法访问 Hugging Face 时使用）
+HF_ENDPOINT=https://hf-mirror.com  # Hugging Face 镜像站
 ```
 
 生成 ENCRYPTION_KEY：
@@ -70,6 +73,25 @@ npm run dev
 ```
 
 访问 http://localhost:5173
+
+---
+
+## 国内服务器部署（镜像源配置）
+
+如果服务器无法访问 Hugging Face，需要在 `.env` 中配置镜像源：
+
+```env
+# 使用 Hugging Face 镜像站（推荐）
+HF_ENDPOINT=https://hf-mirror.com
+```
+
+**可用的镜像站：**
+- `https://hf-mirror.com` - 推荐，速度快，稳定
+- 留空则使用官方源（需要能访问 huggingface.co）
+
+**模型文件位置：**
+- Linux: `~/.cache/huggingface/hub/` 或 `~/.cache/torch/sentence_transformers/`
+- 可通过环境变量 `HF_HOME` 或 `SENTENCE_TRANSFORMERS_HOME` 自定义路径
 
 ---
 
