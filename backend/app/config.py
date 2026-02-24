@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     # 国内服务器无法访问 Hugging Face，可使用以下镜像站：
     # 1. hf-mirror.com（推荐，速度快）
     # 2. 留空则使用官方源（需要能访问 huggingface.co）
-    HF_ENDPOINT: Optional[str] = None  # 例如: "https://hf-mirror.com"
+    HF_ENDPOINT: Optional[str] = "https://hf-mirror.com"  # 例如: "https://hf-mirror.com"
 
     # ── 缓存 ───────────────────────────────────────────────────
     # Embedding 缓存（LRU，避免相同查询重复向量化）
