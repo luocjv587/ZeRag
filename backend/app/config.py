@@ -65,6 +65,16 @@ class Settings(BaseSettings):
     # 是否允许用户自助注册（false 时只有超管能创建账号）
     ALLOW_REGISTER: bool = True
 
+    # ── 日志配置 ───────────────────────────────────────────────
+    # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    LOG_LEVEL: str = "INFO"
+    # 日志文件路径（留空则只输出到控制台）
+    LOG_FILE: Optional[str] = None  # 例如: "logs/zerag.log"
+    # 日志文件最大大小（MB），超过后自动轮转
+    LOG_MAX_SIZE: int = 10
+    # 保留的日志文件数量
+    LOG_BACKUP_COUNT: int = 5
+
     class Config:
         env_file = ".env"
         case_sensitive = True

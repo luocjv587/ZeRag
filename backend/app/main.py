@@ -1,6 +1,14 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
+
+# 在导入任何使用 huggingface 的模块之前设置镜像源
+if settings.HF_ENDPOINT:
+    os.environ["HF_ENDPOINT"] = settings.HF_ENDPOINT
+    os.environ["HUGGINGFACE_HUB_ENDPOINT"] = settings.HF_ENDPOINT
+    # 禁用 hf_transfer 以避免连接问题
+    os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
 from app.database.connection import engine, SessionLocal
 from app.database.pgvector_setup import setup_pgvector
 from app.models import *  # noqa: 确保所有模型被注册

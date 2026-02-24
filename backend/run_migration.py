@@ -114,6 +114,62 @@ def run():
         else:
             print("  ✔  idx_document_chunks_fts 已存在，跳过")
 
+        # ── 8. 向量维度升级（Migration 005 核心功能）────────────────────────────
+        target_dim = settings.EMBEDDING_DIMENSION
+        print(f"  🔍 检查向量维度（目标: {target_dim}维）...")
+        
+        # 检查 document_vectors 表是否存在
+        if "document_vectors" in existing_tables:
+            try:
+                # 尝试获取当前 embedding 列的维度（pgvector 将维度存储在 atttypmod 中）
+                result = conn.execute(text("""
+                    SELECT a.atttypmod
+                    FROM pg_attribute a
+                    JOIN pg_class c ON c.oid = a.attrelid
+                    WHERE c.relname = 'document_vectors'
+                      AND a.attname = 'embedding'
+                      AND a.attnum > 0
+                """)).fetchone()
+                
+                current_dim = result[0] if result and result[0] and result[0] > 0 else None
+                
+                if current_dim is not None and current_dim != target_dim:
+                    print(
+                        f"  ⚠️  向量维度不匹配: 当前={current_dim}维, 目标={target_dim}维"
+                    )
+                    print("  🔄 正在升级向量维度（将清空现有向量数据）...")
+                    
+                    # 清空旧向量（维度不同，旧向量已无效）
+                    conn.execute(text("TRUNCATE TABLE document_vectors"))
+                    print("  ✅ 已清空 document_vectors 表")
+                    
+                    # 删除旧 embedding 列
+                    conn.execute(text("ALTER TABLE document_vectors DROP COLUMN IF EXISTS embedding"))
+                    
+                    # 重建为新维度
+                    conn.execute(text(
+                        f"ALTER TABLE document_vectors "
+                        f"ADD COLUMN embedding vector({target_dim}) NOT NULL"
+                    ))
+                    print(f"  ✅ 已重建 embedding 列为 vector({target_dim})")
+                    
+                    # 将所有数据源的 sync_status 重置为 pending，提示用户重新同步
+                    conn.execute(text(
+                        "UPDATE data_sources SET sync_status = 'pending', sync_error = "
+                        "'Embedding model upgraded, please re-sync this data source.'"
+                    ))
+                    print(
+                        f"  ⚠️  所有数据源已重置为 'pending' 状态，请重新同步数据源！"
+                    )
+                elif current_dim == target_dim:
+                    print(f"  ✔  向量维度已匹配（{target_dim}维），无需升级")
+                else:
+                    print("  ℹ️  无法检测当前向量维度，跳过升级")
+            except Exception as e:
+                print(f"  ⚠️  检查向量维度时出错: {e}，跳过升级")
+        else:
+            print("  ℹ️  document_vectors 表不存在，将在创建表时使用目标维度")
+
         conn.commit()
 
     # ── 5. 新建表（create_all 只补充不存在的表，不影响已有表）────────────────

@@ -9,12 +9,10 @@
 import os
 from typing import List
 
-from sentence_transformers import SentenceTransformer
-
 from app.config import settings
 from app.utils.logger import logger
 
-_model: SentenceTransformer = None
+_model = None
 
 
 def _setup_hf_mirror():
@@ -24,13 +22,18 @@ def _setup_hf_mirror():
         os.environ["HF_ENDPOINT"] = settings.HF_ENDPOINT
         # 确保 huggingface_hub 使用镜像源
         os.environ["HUGGINGFACE_HUB_ENDPOINT"] = settings.HF_ENDPOINT
+        # 禁用 hf_transfer 以避免连接问题
+        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
         logger.info(f"Using Hugging Face mirror: {settings.HF_ENDPOINT}")
 
 
-def get_model() -> SentenceTransformer:
+def get_model():
+    """懒加载 SentenceTransformer 模型（进程级单例）"""
     global _model
     if _model is None:
         _setup_hf_mirror()
+        # 延迟导入，确保环境变量已设置
+        from sentence_transformers import SentenceTransformer
         logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL}")
         _model = SentenceTransformer(settings.EMBEDDING_MODEL)
         logger.info(

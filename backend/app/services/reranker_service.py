@@ -20,6 +20,8 @@ def _setup_hf_mirror():
         os.environ["HF_ENDPOINT"] = settings.HF_ENDPOINT
         # 确保 huggingface_hub 使用镜像源
         os.environ["HUGGINGFACE_HUB_ENDPOINT"] = settings.HF_ENDPOINT
+        # 禁用 hf_transfer 以避免连接问题
+        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
         logger.info(f"Using Hugging Face mirror: {settings.HF_ENDPOINT}")
 
 
