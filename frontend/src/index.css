@@ -9,10 +9,21 @@
   * {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
     @apply bg-white text-apple-gray-900 font-sans;
+    /* 移动端优化 */
+    @media (max-width: 768px) {
+      font-size: 16px; /* 防止 iOS 自动缩放 */
+    }
+  }
+
+  /* 移动端优化：按钮和可点击元素 */
+  button, a, [role="button"] {
+    @apply touch-manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
 
   /* 极简滚动条 */
@@ -32,12 +43,13 @@
 }
 
 @layer components {
-  /* 极简按钮 */
+  /* 极简按钮 - 移动端增加触摸区域 */
   .btn-primary {
     @apply bg-apple-black text-white text-sm font-medium px-5 py-2.5 rounded-lg
            transition-all duration-150 ease-in-out
            hover:bg-apple-gray-800 active:scale-95
-           disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100;
+           disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100
+           min-h-[44px] touch-manipulation;
   }
 
   .btn-secondary {
@@ -45,21 +57,24 @@
            border border-apple-gray-200
            transition-all duration-150 ease-in-out
            hover:bg-apple-gray-50 active:scale-95
-           disabled:opacity-40 disabled:cursor-not-allowed;
+           disabled:opacity-40 disabled:cursor-not-allowed
+           min-h-[44px] touch-manipulation;
   }
 
   .btn-ghost {
     @apply text-apple-gray-500 text-sm px-3 py-2 rounded-lg
            transition-colors duration-150
-           hover:bg-apple-gray-100 hover:text-apple-gray-800;
+           hover:bg-apple-gray-100 hover:text-apple-gray-800
+           min-h-[44px] touch-manipulation;
   }
 
-  /* 极简输入框 */
+  /* 极简输入框 - 移动端优化 */
   .input-base {
     @apply w-full bg-white border border-apple-gray-200 rounded-lg
            px-4 py-2.5 text-sm text-apple-gray-900 placeholder-apple-gray-400
            outline-none transition-all duration-150
-           focus:border-apple-gray-400 focus:ring-0;
+           focus:border-apple-gray-400 focus:ring-0
+           min-h-[44px] touch-manipulation;
   }
 
   /* 卡片 */

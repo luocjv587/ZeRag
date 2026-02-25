@@ -65,7 +65,7 @@ interface SettingsPanelProps {
 
 function SettingsPanel({ settings, onChange, onClose }: SettingsPanelProps) {
   return (
-    <div className="absolute right-0 top-full mt-2 z-30 bg-white rounded-2xl shadow-apple-lg border border-apple-gray-100 p-4 w-72">
+    <div className="absolute right-0 top-full mt-2 z-30 bg-white rounded-2xl shadow-apple-lg border border-apple-gray-100 p-4 w-[calc(100vw-2rem)] sm:w-72 max-w-sm">
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs font-semibold text-apple-black">RAG 参数设置</p>
         <button onClick={onClose} className="btn-ghost p-0.5">
@@ -321,25 +321,27 @@ export default function Chat() {
   return (
     <div className="flex flex-col h-full">
       {/* 顶部栏 */}
-      <div className="px-6 py-4 border-b border-apple-gray-200 flex items-center justify-between">
-        <div>
-          <h1 className="text-base font-semibold text-apple-black">
-            {chatMode === 'chat' ? 'AI 对话' : '智能问答'}
-          </h1>
-          <p className="text-xs text-apple-gray-400 mt-0.5">
-            {chatMode === 'chat'
-              ? '与 AI 自由对话，无需选择数据源（支持多轮上下文）'
-              : '基于数据源内容进行 AI 问答（支持多轮对话）'}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
+      <div className="px-4 md:px-6 py-3 md:py-4 border-b border-apple-gray-200 md:pl-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="min-w-0 pl-12 md:pl-0">
+            <h1 className="text-base font-semibold text-apple-black">
+              {chatMode === 'chat' ? 'AI 对话' : '智能问答'}
+            </h1>
+            <p className="text-xs text-apple-gray-400 mt-0.5 hidden md:block">
+              {chatMode === 'chat'
+                ? '与 AI 自由对话，无需选择数据源（支持多轮上下文）'
+                : '基于数据源内容进行 AI 问答（支持多轮对话）'}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 md:gap-3">
           {messages.length > 0 && (
             <button
               onClick={handleClear}
-              className="btn-ghost text-xs text-apple-gray-400 hover:text-red-400"
+              className="btn-ghost text-xs text-apple-gray-400 hover:text-red-400 px-2 py-1.5"
               title="清空对话"
             >
-              清空对话
+              <span className="hidden sm:inline">清空对话</span>
+              <span className="sm:hidden">清空</span>
             </button>
           )}
 
@@ -347,23 +349,25 @@ export default function Chat() {
           <div className="flex items-center bg-apple-gray-100 rounded-lg p-0.5">
             <button
               onClick={() => setChatMode('chat')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+              className={`px-2 md:px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
                 chatMode === 'chat'
                   ? 'bg-white text-apple-black shadow-sm'
                   : 'text-apple-gray-400 hover:text-apple-gray-600'
               }`}
             >
-              💬 AI 对话
+              <span className="hidden sm:inline">💬 AI 对话</span>
+              <span className="sm:hidden">💬</span>
             </button>
             <button
               onClick={() => setChatMode('rag')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+              className={`px-2 md:px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
                 chatMode === 'rag'
                   ? 'bg-white text-apple-black shadow-sm'
                   : 'text-apple-gray-400 hover:text-apple-gray-600'
               }`}
             >
-              📚 知识库
+              <span className="hidden sm:inline">📚 知识库</span>
+              <span className="sm:hidden">📚</span>
             </button>
           </div>
 
@@ -372,7 +376,7 @@ export default function Chat() {
             <select
               value={selectedDsId ?? ''}
               onChange={(e) => setSelectedDsId(e.target.value ? Number(e.target.value) : undefined)}
-              className="input-base w-44 text-xs"
+              className="input-base w-full sm:w-44 text-xs"
             >
               <option value="">全部数据源</option>
               {dataSources.map((ds) => (
@@ -408,7 +412,7 @@ export default function Chat() {
       </div>
 
       {/* 消息列表 */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 md:py-6">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center">
             <div className="w-14 h-14 bg-apple-gray-100 rounded-2xl flex items-center justify-center mb-4 text-2xl">
@@ -447,16 +451,17 @@ export default function Chat() {
       </div>
 
       {/* 输入区 */}
-      <div className="px-6 py-4 border-t border-apple-gray-200">
+      <div className="px-4 md:px-6 py-3 md:py-4 border-t border-apple-gray-200">
         {messages.filter((m) => !m.loading).length >= 2 && (
           <div className="flex items-center gap-1.5 mb-2">
             <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
             <span className="text-[10px] text-apple-gray-300">
-              多轮对话已开启 · 已积累 {Math.floor(messages.filter((m) => !m.loading).length / 2)} 轮上下文
+              <span className="hidden sm:inline">多轮对话已开启 · 已积累 {Math.floor(messages.filter((m) => !m.loading).length / 2)} 轮上下文</span>
+              <span className="sm:hidden">多轮对话 · {Math.floor(messages.filter((m) => !m.loading).length / 2)} 轮</span>
             </span>
           </div>
         )}
-        <div className="flex items-end gap-3">
+        <div className="flex items-end gap-2 md:gap-3">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -475,16 +480,16 @@ export default function Chat() {
           {loading ? (
             <button
               onClick={handleStop}
-              className="btn-secondary px-4 py-2.5 shrink-0 flex items-center gap-1.5"
+              className="btn-secondary px-3 md:px-4 py-2.5 shrink-0 flex items-center gap-1.5 min-w-[60px]"
             >
               <span className="w-3 h-3 border-2 border-current rounded-sm" />
-              停止
+              <span className="hidden sm:inline">停止</span>
             </button>
           ) : (
             <button
               onClick={sendMessage}
               disabled={!input.trim()}
-              className="btn-primary px-4 py-2.5 shrink-0"
+              className="btn-primary px-3 md:px-4 py-2.5 shrink-0 min-w-[44px]"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="22" y1="2" x2="11" y2="13" />

@@ -173,17 +173,17 @@ export default function ChatMessage({ message }: Props) {
   const hasChunks = !isUser && message.chunks && message.chunks.length > 0
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-5`}>
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4 md:mb-5`}>
       {/* AI 头像 */}
       {!isUser && (
-        <div className="w-7 h-7 bg-apple-black rounded-full flex items-center justify-center mr-2.5 mt-0.5 shrink-0">
+        <div className="w-6 h-6 md:w-7 md:h-7 bg-apple-black rounded-full flex items-center justify-center mr-2 md:mr-2.5 mt-0.5 shrink-0">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
             <path d="M4 6h16M4 10h10M4 14h12M4 18h8" stroke="white" strokeWidth="2.2" strokeLinecap="round" />
           </svg>
         </div>
       )}
 
-      <div className={`max-w-[76%] flex flex-col gap-1.5 ${isUser ? 'items-end' : 'items-start'}`}>
+      <div className={`max-w-[85%] md:max-w-[76%] flex flex-col gap-1.5 ${isUser ? 'items-end' : 'items-start'}`}>
 
         {/* 消息气泡 */}
         {message.loading && !message.content ? (
@@ -320,7 +320,7 @@ export default function ChatMessage({ message }: Props) {
 
       {/* 用户头像 */}
       {isUser && (
-        <div className="w-7 h-7 bg-apple-gray-200 rounded-full flex items-center justify-center ml-2.5 mt-0.5 shrink-0">
+        <div className="w-6 h-6 md:w-7 md:h-7 bg-apple-gray-200 rounded-full flex items-center justify-center ml-2 md:ml-2.5 mt-0.5 shrink-0">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6E6E6E" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
             <circle cx="12" cy="7" r="4" />

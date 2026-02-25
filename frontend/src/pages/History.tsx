@@ -49,17 +49,17 @@ export default function History() {
   }
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-8">
+    <div className="p-4 md:p-8 pt-16 md:pt-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 md:mb-8">
         <div>
-          <h1 className="text-xl font-semibold text-apple-black">问答历史</h1>
-          <p className="text-sm text-apple-gray-400 mt-0.5">共 {list.length} 条历史记录</p>
+          <h1 className="text-lg md:text-xl font-semibold text-apple-black">问答历史</h1>
+          <p className="text-xs md:text-sm text-apple-gray-400 mt-0.5">共 {list.length} 条历史记录</p>
         </div>
         {list.length > 0 && (
           <button
             onClick={handleClearAll}
             disabled={deleting === 'all'}
-            className="btn-ghost text-xs text-red-400 hover:text-red-600 hover:bg-red-50"
+            className="btn-ghost text-xs text-red-400 hover:text-red-600 hover:bg-red-50 w-full sm:w-auto"
           >
             {deleting === 'all' ? '清空中…' : '清空全部'}
           </button>
@@ -84,7 +84,7 @@ export default function History() {
               className="card overflow-hidden cursor-pointer"
               onClick={() => setExpanded(expanded === item.id ? null : item.id)}
             >
-              <div className="px-5 py-4 flex items-start justify-between gap-4">
+              <div className="px-4 md:px-5 py-4 flex items-start justify-between gap-3 md:gap-4">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-apple-black truncate">{item.question}</p>
                   <p className="text-xs text-apple-gray-400 mt-0.5 line-clamp-1">
@@ -128,7 +128,7 @@ export default function History() {
 
               {/* 展开详情 */}
               {expanded === item.id && (
-                <div className="border-t border-apple-gray-100 px-5 py-4 bg-apple-gray-50 space-y-3">
+                <div className="border-t border-apple-gray-100 px-4 md:px-5 py-4 bg-apple-gray-50 space-y-3">
                   <div>
                     <p className="text-[10px] uppercase tracking-wider text-apple-gray-400 mb-1.5 font-medium">问题</p>
                     <p className="text-sm text-apple-gray-800">{item.question}</p>

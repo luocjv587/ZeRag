@@ -186,16 +186,16 @@ export default function Admin() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8 pt-16 md:pt-8">
       {/* 标题 */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 md:mb-8">
         <div>
-          <h1 className="text-xl font-semibold text-apple-black">管理员后台</h1>
-          <p className="text-sm text-apple-gray-400 mt-0.5">用户管理与平台统计</p>
+          <h1 className="text-lg md:text-xl font-semibold text-apple-black">管理员后台</h1>
+          <p className="text-xs md:text-sm text-apple-gray-400 mt-0.5">用户管理与平台统计</p>
         </div>
         <button
           onClick={() => setModal({ mode: 'create' })}
-          className="btn-primary flex items-center gap-2"
+          className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
             <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
@@ -206,7 +206,7 @@ export default function Admin() {
 
       {/* 统计卡片 */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-8">
           <StatCard label="总用户数" value={stats.total_users} sub={`${stats.active_users} 活跃`} />
           <StatCard label="数据源" value={stats.total_data_sources} />
           <StatCard label="问答总量" value={stats.total_qa_history} />

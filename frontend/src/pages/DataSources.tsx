@@ -94,8 +94,8 @@ function ChunkViewModal({ ds, onClose }: { ds: DataSource; onClose: () => void }
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-apple-lg w-full max-w-2xl mx-4 flex flex-col" style={{ maxHeight: '80vh' }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-apple-lg w-full max-w-2xl flex flex-col" style={{ maxHeight: '80vh' }}>
         {/* 头部 */}
         <div className="px-5 py-4 border-b border-apple-gray-100 flex items-center justify-between shrink-0">
           <div>
@@ -221,8 +221,8 @@ function EditModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-apple-lg w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-apple-lg w-full max-w-md p-4 md:p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-base font-semibold text-apple-black">编辑数据源</h2>
           <button onClick={onClose} className="btn-ghost p-1">
@@ -751,14 +751,14 @@ export default function DataSources() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8 pt-16 md:pt-8">
       {/* 顶部 */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 md:mb-8">
         <div>
-          <h1 className="text-xl font-semibold text-apple-black">数据源</h1>
-          <p className="text-sm text-apple-gray-400 mt-0.5">管理数据库连接与文件知识库</p>
+          <h1 className="text-lg md:text-xl font-semibold text-apple-black">数据源</h1>
+          <p className="text-xs md:text-sm text-apple-gray-400 mt-0.5">管理数据库连接与文件知识库</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
+        <button onClick={() => setShowModal(true)} className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
             <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
           </svg>
@@ -802,9 +802,9 @@ export default function DataSources() {
                 : ''
 
             return (
-              <div key={ds.id} className="card px-5 py-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
+              <div key={ds.id} className="card px-4 md:px-5 py-4">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div className="flex items-start md:items-center gap-3 md:gap-4 min-w-0 flex-1">
                     {/* 类型标识 */}
                     <div className="w-9 h-9 bg-apple-gray-100 rounded-lg flex items-center justify-center shrink-0">
                       {isFile ? (
@@ -817,9 +817,9 @@ export default function DataSources() {
                         </span>
                       )}
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-apple-black">{ds.name}</p>
-                      <p className="text-xs text-apple-gray-400 mt-0.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-apple-black truncate">{ds.name}</p>
+                      <p className="text-xs text-apple-gray-400 mt-0.5 line-clamp-2">
                         {DB_TYPE_LABELS[ds.db_type]}
                         {ds.host && ` · ${ds.host}:${ds.port}`}
                         {ds.database_name && ` · ${ds.database_name}`}
@@ -827,7 +827,7 @@ export default function DataSources() {
                         {isFile && ds.uploaded_files && ` · ${ds.uploaded_files.length} 个文件`}
                         {isWeb && ds.web_urls && ` · ${ds.web_urls.length} 个 URL`}
                       </p>
-                      <p className="text-[10px] text-apple-gray-300 mt-0.5">
+                      <p className="text-[10px] text-apple-gray-300 mt-0.5 line-clamp-2">
                         {ds.last_synced_at
                           ? `上次同步：${new Date(ds.last_synced_at).toLocaleString('zh-CN')}`
                           : '尚未同步'
@@ -840,14 +840,14 @@ export default function DataSources() {
                       </p>
                       {/* 同步错误提示 */}
                       {ds.sync_status === 'error' && ds.sync_error && (
-                        <p className="text-[10px] text-red-400 mt-0.5 truncate max-w-xs" title={ds.sync_error}>
+                        <p className="text-[10px] text-red-400 mt-0.5 truncate" title={ds.sync_error}>
                           ⚠️ {ds.sync_error}
                         </p>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 md:gap-2">
                     <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusCfg.className}`}>
                       {statusCfg.label}
                     </span>
@@ -926,8 +926,8 @@ export default function DataSources() {
 
       {/* 创建弹窗 */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-apple-lg w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-apple-lg w-full max-w-md p-4 md:p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-base font-semibold text-apple-black">添加数据源</h2>
               <button onClick={() => setShowModal(false)} className="btn-ghost p-1">

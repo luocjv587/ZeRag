@@ -8,14 +8,14 @@ export default function Tools() {
   const [refreshSignal, setRefreshSignal] = useState(0)
 
   return (
-    <div className="p-8 max-w-5xl">
+    <div className="p-4 md:p-8 max-w-5xl pt-16 md:pt-8">
       {/* 页头 */}
-      <div className="mb-8">
-        <h1 className="text-xl font-semibold text-apple-black">工具箱</h1>
-        <p className="text-sm text-apple-gray-400 mt-0.5">常用文档处理小工具，开箱即用</p>
+      <div className="mb-6 md:mb-8">
+        <h1 className="text-lg md:text-xl font-semibold text-apple-black">工具箱</h1>
+        <p className="text-xs md:text-sm text-apple-gray-400 mt-0.5">常用文档处理小工具，开箱即用</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 items-start">
         {/* 左：工具卡片 */}
         <div className="grid grid-cols-1 gap-4">
           <PdfToWordCard onConverted={() => setRefreshSignal(s => s + 1)} />

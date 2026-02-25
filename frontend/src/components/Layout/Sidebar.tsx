@@ -77,8 +77,8 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-apple-lg w-full max-w-sm p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-apple-lg w-full max-w-sm p-4 md:p-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-base font-semibold text-apple-black">修改密码</h2>
           <button onClick={onClose} className="btn-ghost p-1">
@@ -139,16 +139,44 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
 
 // ── 主组件 ───────────────────────────────────────────────────────────────────
 
-export default function Sidebar() {
+interface SidebarProps {
+  isOpen?: boolean
+  onClose?: () => void
+}
+
+export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   const { user, logout } = useAuth()
   const [showChangePwd, setShowChangePwd] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
 
+  const handleNavClick = () => {
+    // 移动端点击导航项后自动关闭侧边栏
+    if (onClose && window.innerWidth < 768) {
+      onClose()
+    }
+  }
+
   return (
     <>
-      <aside className="w-56 h-screen bg-apple-gray-50 border-r border-apple-gray-200 flex flex-col shrink-0">
+      {/* 移动端遮罩层 */}
+      {onClose && isOpen && (
+        <div
+          className="fixed inset-0 bg-black/30 z-40 md:hidden"
+          onClick={onClose}
+        />
+      )}
+
+      <aside
+        className={`
+          fixed md:static inset-y-0 left-0 z-50
+          w-64 md:w-56 h-screen bg-apple-gray-50 border-r border-apple-gray-200
+          flex flex-col shrink-0
+          transform transition-transform duration-300 ease-in-out
+          ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        `}
+      >
         {/* 品牌 Logo */}
-        <div className="px-5 py-6 border-b border-apple-gray-200">
+        <div className="px-5 py-6 border-b border-apple-gray-200 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 bg-apple-black rounded-lg flex items-center justify-center">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -157,6 +185,19 @@ export default function Sidebar() {
             </div>
             <span className="font-semibold text-apple-black text-sm tracking-tight">ZeRag</span>
           </div>
+          {/* 移动端关闭按钮 */}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="md:hidden p-1.5 rounded-lg hover:bg-apple-gray-200 transition-colors"
+              aria-label="关闭菜单"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* 主导航 */}
@@ -166,6 +207,7 @@ export default function Sidebar() {
               key={item.to}
               to={item.to}
               end={item.to === '/'}
+              onClick={handleNavClick}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors duration-100 ${
                   isActive
@@ -187,6 +229,7 @@ export default function Sidebar() {
             <NavLink
               key={item.to}
               to={item.to}
+              onClick={handleNavClick}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors duration-100 ${
                   isActive
@@ -208,6 +251,7 @@ export default function Sidebar() {
               </div>
               <NavLink
                 to="/admin"
+                onClick={handleNavClick}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors duration-100 ${
                     isActive
