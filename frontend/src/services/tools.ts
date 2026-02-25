@@ -1,7 +1,6 @@
 import api from './api'
 import type { PdfConvertHistory } from '../types'
-
-const BASE_URL = 'http://localhost:8000'
+import { API_BASE_URL } from '../config/api'
 
 /**
  * PDF 转 Word
@@ -12,7 +11,7 @@ export async function convertPdfToWord(file: File): Promise<PdfConvertHistory> {
   formData.append('file', file)
 
   const token = localStorage.getItem('zerag_token')
-  const response = await fetch(`${BASE_URL}/api/tools/pdf-to-word`, {
+  const response = await fetch(`${API_BASE_URL}/api/tools/pdf-to-word`, {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: formData,
@@ -40,7 +39,7 @@ export async function convertPdfToWord(file: File): Promise<PdfConvertHistory> {
  */
 export async function downloadConvertedFile(historyId: number, filename: string): Promise<void> {
   const token = localStorage.getItem('zerag_token')
-  const response = await fetch(`${BASE_URL}/api/tools/pdf-to-word/download/${historyId}`, {
+  const response = await fetch(`${API_BASE_URL}/api/tools/pdf-to-word/download/${historyId}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
 

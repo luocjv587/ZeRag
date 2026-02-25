@@ -1,5 +1,6 @@
 import api from './api'
 import type { AskRequest, AskResponse, QAHistory, StreamEvent } from '../types'
+import { API_BASE_URL } from '../config/api'
 
 export const qaService = {
   async ask(data: AskRequest): Promise<AskResponse> {
@@ -39,7 +40,7 @@ export const qaService = {
 
     const run = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/v1/qa/ask/stream', {
+        const response = await fetch(`${API_BASE_URL}/api/v1/qa/ask/stream`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
