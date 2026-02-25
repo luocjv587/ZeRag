@@ -102,13 +102,30 @@ def update_data_source(db: Session, ds_id: int, data: DataSourceUpdate) -> Optio
 
 
 def delete_data_source(db: Session, ds_id: int) -> bool:
+    from app.models.document_chunk import DocumentChunk
+    from app.models.document_vector import DocumentVector
+    
     ds = get_data_source(db, ds_id)
     if not ds:
         return False
+    
+    # 先显式删除相关的 chunks 和 vectors，避免级联删除时的外键约束问题
+    # 这样可以确保在删除数据源之前，所有相关数据都被正确清理
+    chunk_ids = db.query(DocumentChunk.id).filter(DocumentChunk.data_source_id == ds_id).all()
+    if chunk_ids:
+        chunk_id_list = [c[0] for c in chunk_ids]
+        # 删除 vectors（通过 chunk_id）
+        db.query(DocumentVector).filter(DocumentVector.chunk_id.in_(chunk_id_list)).delete(synchronize_session=False)
+        # 删除 chunks
+        db.query(DocumentChunk).filter(DocumentChunk.data_source_id == ds_id).delete(synchronize_session=False)
+        db.flush()
+    
     # 文件类型：删除存储目录
     if ds.db_type == "file" and ds.file_store_dir and os.path.isdir(ds.file_store_dir):
         import shutil
         shutil.rmtree(ds.file_store_dir, ignore_errors=True)
+    
+    # 最后删除数据源本身
     db.delete(ds)
     db.commit()
     return True
