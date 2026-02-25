@@ -3,7 +3,7 @@
 支持：PDF、Word (.docx/.doc)、PowerPoint (.pptx/.ppt)、纯文本 (.txt/.md)、Excel (.xlsx/.xls)
 """
 import os
-from typing import List
+from typing import List, Tuple
 from app.utils.logger import logger
 
 
@@ -264,9 +264,51 @@ def extract_texts_from_dir(dir_path: str) -> List[dict]:
 
 # ─── 网络 URL 提取 ─────────────────────────────────────────────────────────────
 
+def _is_file_url(url: str, content_type: str = None) -> Tuple[bool, str]:
+    """
+    检测 URL 是否指向文件（而非 HTML 网页）
+    返回：(is_file, file_extension)
+    """
+    # 从 URL 中提取文件扩展名（去除查询参数）
+    url_path = url.split("?")[0].split("#")[0]
+    url_ext = os.path.splitext(url_path)[1].lower()
+    
+    # 支持的文件扩展名
+    file_extensions = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".md"}
+    
+    # 方法1：从 URL 扩展名判断
+    if url_ext in file_extensions:
+        return True, url_ext
+    
+    # 方法2：从 Content-Type 判断
+    if content_type:
+        content_type_lower = content_type.lower()
+        # 常见的文件 MIME 类型
+        file_mime_types = {
+            "application/pdf": ".pdf",
+            "application/msword": ".doc",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+            "application/vnd.ms-excel": ".xls",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+            "application/vnd.ms-powerpoint": ".ppt",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+            "text/plain": ".txt",
+            "text/markdown": ".md",
+        }
+        for mime_type, ext in file_mime_types.items():
+            if mime_type in content_type_lower:
+                return True, ext
+    
+    return False, ""
+
+
 def extract_text_from_url(url: str, timeout: int = 30) -> dict:
     """
     从网络 URL 抓取并提取文本内容。
+    支持两种类型：
+    1. 文件类型（PDF、Word、Excel、PPT等）：下载文件并提取文本
+    2. HTML 网页：解析 HTML 提取文本
+    
     返回：{"url": str, "title": str, "text": str}
 
     注意：对于需要 JavaScript 渲染（如腾讯文档、Google Docs 等）的页面，
@@ -275,6 +317,7 @@ def extract_text_from_url(url: str, timeout: int = 30) -> dict:
     try:
         import requests
         from bs4 import BeautifulSoup
+        import tempfile
     except ImportError:
         raise ImportError("requests 或 beautifulsoup4 未安装，请运行: pip install requests beautifulsoup4 lxml")
 
@@ -284,23 +327,90 @@ def extract_text_from_url(url: str, timeout: int = 30) -> dict:
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/120.0.0.0 Safari/537.36"
         ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept": "*/*",  # 接受所有类型，包括文件
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     }
 
     logger.info(f"正在抓取 URL: {url}")
-    resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+    
+    # 先基于 URL 扩展名判断是否为文件
+    is_file, file_ext = _is_file_url(url, None)
+    
+    # 发送 GET 请求获取响应（使用 stream=True 以便处理大文件）
+    resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True, stream=True)
     resp.raise_for_status()
+    
+    # 从响应头获取 Content-Type，再次确认是否为文件
+    content_type = resp.headers.get("content-type", "")
+    if not is_file:
+        is_file, file_ext = _is_file_url(url, content_type)
+    
+    if is_file:
+        # 处理文件类型：下载并提取文本
+        logger.info(f"检测到文件类型 URL: {url} (扩展名: {file_ext})")
+        
+        # 从 Content-Disposition 或 URL 中提取文件名
+        filename = None
+        content_disposition = resp.headers.get("content-disposition", "")
+        if content_disposition:
+            import re
+            match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^\s;]+)', content_disposition)
+            if match:
+                filename = match.group(1).strip('"\'')
+        
+        if not filename:
+            # 从 URL 提取文件名
+            url_path = url.split("?")[0].split("#")[0]
+            filename = os.path.basename(url_path) or f"file{file_ext}"
+        
+        # 确保文件名有正确的扩展名
+        if not filename.endswith(file_ext):
+            filename = filename.rsplit(".", 1)[0] + file_ext
+        
+        # 保存到临时文件
+        temp_dir = tempfile.gettempdir()
+        temp_file_path = os.path.join(temp_dir, f"zerag_download_{os.urandom(8).hex()}{file_ext}")
+        
+        try:
+            with open(temp_file_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            logger.info(f"文件已下载到临时路径: {temp_file_path}")
+            
+            # 使用现有的文件提取函数提取文本
+            full_text = extract_text_from_file(temp_file_path)
+            title = filename
+            
+            logger.info(f"文件提取完成: {url}，文件名={filename!r}，字符数={len(full_text)}")
+            return {"url": url, "title": title, "text": full_text}
+            
+        finally:
+            # 清理临时文件
+            try:
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+                    logger.debug(f"已删除临时文件: {temp_file_path}")
+            except Exception as e:
+                logger.warning(f"删除临时文件失败 {temp_file_path}: {e}")
+    
+    # 处理 HTML 网页类型
+    # 由于使用了 stream=True，响应内容还未被读取，可以直接使用 resp.text
+    # 但需要先关闭流模式或使用 resp.content
+    # 对于 HTML，我们重新发送请求（不使用 stream）以获取完整内容
+    resp_html = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+    resp_html.raise_for_status()
 
     # 自动检测编码
-    content_type = resp.headers.get("content-type", "")
-    if "charset=" in content_type:
-        encoding = content_type.split("charset=")[-1].split(";")[0].strip()
-        resp.encoding = encoding
+    content_type_html = resp_html.headers.get("content-type", "")
+    if "charset=" in content_type_html:
+        encoding = content_type_html.split("charset=")[-1].split(";")[0].strip()
+        resp_html.encoding = encoding
     else:
-        resp.encoding = resp.apparent_encoding or "utf-8"
+        resp_html.encoding = resp_html.apparent_encoding or "utf-8"
 
-    soup = BeautifulSoup(resp.text, "lxml")
+    soup = BeautifulSoup(resp_html.text, "lxml")
 
     # 提取标题
     title_tag = soup.find("title")
