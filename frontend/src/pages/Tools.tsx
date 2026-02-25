@@ -224,7 +224,7 @@ function PdfToWordCard({ onConverted }: PdfToWordCardProps) {
             )}
             <button
               onClick={handleConvert}
-              disabled={!selectedFile || status === 'converting'}
+              disabled={!selectedFile}
               className="btn-primary flex-1 text-xs py-2 flex items-center justify-center gap-1.5"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
