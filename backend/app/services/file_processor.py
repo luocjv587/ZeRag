@@ -107,18 +107,35 @@ def _extract_xlsx(file_path: str) -> str:
     except ImportError:
         raise ImportError("openpyxl 未安装，请运行: pip install openpyxl")
 
-    wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+    try:
+        # 尝试使用 data_only=True（读取计算后的值）
+        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+    except Exception as e:
+        logger.warning(f"使用 data_only=True 加载失败，尝试使用 data_only=False: {e}")
+        # 如果失败，尝试不使用 data_only（读取公式）
+        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=False)
+    
     all_sheets: List[str] = []
 
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
-        rows = list(ws.iter_rows(values_only=True))
-        sheet_text = _rows_to_text(sheet_name, rows)
-        if sheet_text:
-            all_sheets.append(sheet_text)
+        try:
+            rows = list(ws.iter_rows(values_only=True))
+            logger.debug(f"Sheet '{sheet_name}': 读取到 {len(rows)} 行")
+            sheet_text = _rows_to_text(sheet_name, rows)
+            if sheet_text:
+                all_sheets.append(sheet_text)
+                logger.debug(f"Sheet '{sheet_name}': 提取文本长度={len(sheet_text)}")
+            else:
+                logger.warning(f"Sheet '{sheet_name}': 提取的文本为空，可能没有有效数据")
+        except Exception as e:
+            logger.error(f"处理Sheet '{sheet_name}' 时出错: {e}")
+            continue
 
     wb.close()
-    return "\n\n".join(all_sheets)
+    result = "\n\n".join(all_sheets)
+    logger.info(f"Excel文件提取完成，共 {len(all_sheets)} 个Sheet有内容，总文本长度={len(result)}")
+    return result
 
 
 def _extract_xls(file_path: str) -> str:
@@ -153,6 +170,7 @@ def _rows_to_text(sheet_name: str, rows: List[tuple]) -> str:
     - 过滤空行
     """
     if not rows:
+        logger.debug(f"Sheet '{sheet_name}': 没有行数据")
         return ""
 
     # 过滤全为空的行
@@ -161,6 +179,7 @@ def _rows_to_text(sheet_name: str, rows: List[tuple]) -> str:
         if any(v is not None and str(v).strip() != "" for v in r)
     ]
     if not non_empty_rows:
+        logger.debug(f"Sheet '{sheet_name}': 所有行都为空")
         return ""
 
     lines: List[str] = [f"[Sheet: {sheet_name}]"]
@@ -173,31 +192,53 @@ def _rows_to_text(sheet_name: str, rows: List[tuple]) -> str:
         # 输出表头行（作为列名参考）
         lines.append("列名：" + " | ".join(h for h in header if h))
         # 输出数据行
+        data_row_count = 0
         for row in non_empty_rows[1:]:
             cells = []
             for col_idx, val in enumerate(row):
                 col_name = header[col_idx] if col_idx < len(header) else f"列{col_idx + 1}"
-                cell_str = str(val).strip() if val is not None else ""
+                # 处理各种类型的值
+                if val is None:
+                    continue
+                # 处理日期时间类型
+                if hasattr(val, 'strftime'):
+                    cell_str = val.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    cell_str = str(val).strip()
                 if cell_str and cell_str != "None":
                     cells.append(f"{col_name}={cell_str}")
             if cells:
                 lines.append(" | ".join(cells))
+                data_row_count += 1
+        logger.debug(f"Sheet '{sheet_name}': 有表头，提取了 {data_row_count} 行数据")
     else:
         # 无表头，直接输出每行
+        data_row_count = 0
         for row in non_empty_rows:
-            cell_strs = [
-                str(v).strip()
-                for v in row
-                if v is not None and str(v).strip() not in ("", "None")
-            ]
+            cell_strs = []
+            for v in row:
+                if v is None:
+                    continue
+                # 处理日期时间类型
+                if hasattr(v, 'strftime'):
+                    cell_str = v.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    cell_str = str(v).strip()
+                if cell_str and cell_str not in ("", "None"):
+                    cell_strs.append(cell_str)
             if cell_strs:
                 lines.append("\t".join(cell_strs))
+                data_row_count += 1
+        logger.debug(f"Sheet '{sheet_name}': 无表头，提取了 {data_row_count} 行数据")
 
     # 只有标题行，没有实际内容
     if len(lines) <= 2:
+        logger.warning(f"Sheet '{sheet_name}': 只有标题行，没有实际数据内容")
         return ""
 
-    return "\n".join(lines)
+    result = "\n".join(lines)
+    logger.debug(f"Sheet '{sheet_name}': 最终文本长度={len(result)}")
+    return result
 
 
 # 文件扩展名 → 解析函数映射
@@ -372,19 +413,54 @@ def extract_text_from_url(url: str, timeout: int = 30) -> dict:
         temp_file_path = os.path.join(temp_dir, f"zerag_download_{os.urandom(8).hex()}{file_ext}")
         
         try:
+            file_size = 0
             with open(temp_file_path, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
+                        file_size += len(chunk)
             
-            logger.info(f"文件已下载到临时路径: {temp_file_path}")
+            logger.info(f"文件已下载到临时路径: {temp_file_path}，文件大小: {file_size} 字节")
+            
+            # 检查文件是否存在且大小大于0
+            if not os.path.exists(temp_file_path) or os.path.getsize(temp_file_path) == 0:
+                raise ValueError(f"文件下载失败或文件为空，文件大小: {os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else 0} 字节")
             
             # 使用现有的文件提取函数提取文本
-            full_text = extract_text_from_file(temp_file_path)
-            title = filename
-            
-            logger.info(f"文件提取完成: {url}，文件名={filename!r}，字符数={len(full_text)}")
-            return {"url": url, "title": title, "text": full_text}
+            try:
+                full_text = extract_text_from_file(temp_file_path)
+                title = filename
+                
+                if not full_text or not full_text.strip():
+                    logger.warning(f"文件提取结果为空: {url}，文件大小: {file_size} 字节，可能文件格式有问题或内容为空")
+                    # 对于Excel文件，尝试更详细的调试信息
+                    if file_ext in [".xlsx", ".xls"]:
+                        try:
+                            import openpyxl
+                            wb = openpyxl.load_workbook(temp_file_path, read_only=True, data_only=True)
+                            logger.info(f"Excel文件包含 {len(wb.sheetnames)} 个Sheet: {wb.sheetnames}")
+                            for sheet_name in wb.sheetnames:
+                                ws = wb[sheet_name]
+                                max_row = ws.max_row
+                                max_col = ws.max_column
+                                logger.info(f"  Sheet '{sheet_name}': 最大行={max_row}, 最大列={max_col}")
+                                # 读取前几行看看
+                                sample_rows = []
+                                for row_idx, row in enumerate(ws.iter_rows(values_only=True), 1):
+                                    if row_idx <= 3:  # 只读取前3行
+                                        sample_rows.append([str(cell) if cell is not None else "" for cell in row])
+                                    if row_idx >= 3:
+                                        break
+                                logger.info(f"  前3行示例: {sample_rows}")
+                            wb.close()
+                        except Exception as e:
+                            logger.error(f"调试Excel文件时出错: {e}")
+                
+                logger.info(f"文件提取完成: {url}，文件名={filename!r}，字符数={len(full_text)}")
+                return {"url": url, "title": title, "text": full_text}
+            except Exception as e:
+                logger.error(f"提取文件内容时出错: {e}，文件路径: {temp_file_path}，文件大小: {file_size} 字节")
+                raise
             
         finally:
             # 清理临时文件
