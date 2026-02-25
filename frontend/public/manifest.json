@@ -1,0 +1,42 @@
+{
+  "name": "ZeRag - 智能数据库问答平台",
+  "short_name": "ZeRag",
+  "description": "通用 RAG 智能数据库问答平台",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#000000",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "education"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "智能问答",
+      "short_name": "问答",
+      "description": "开始智能问答",
+      "url": "/",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "数据源",
+      "short_name": "数据源",
+      "description": "管理数据源",
+      "url": "/data-sources",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

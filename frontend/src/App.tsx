@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import AppLayout from './components/Layout/AppLayout'
+import PWAInstallPrompt from './components/PWAInstallPrompt'
 import Login from './pages/Login'
 import Chat from './pages/Chat'
 import DataSources from './pages/DataSources'
@@ -61,6 +62,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <AppRoutes />
+        <PWAInstallPrompt />
       </AuthProvider>
     </BrowserRouter>
   )

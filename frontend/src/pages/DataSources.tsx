@@ -713,6 +713,10 @@ export default function DataSources() {
       // 乐观更新状态为 syncing，然后启动轮询
       setList((prev) => prev.map((ds) => ds.id === id ? { ...ds, sync_status: 'syncing' } : ds))
       startPolling(id)
+    } catch (error: any) {
+      // 处理同步错误（如：数据源正在同步中）
+      const errorMessage = error?.response?.data?.detail || error?.message || '同步失败，请重试'
+      showToast(errorMessage)
     } finally {
       setActionLoading((p) => { const n = { ...p }; delete n[id]; return n })
     }

@@ -12,4 +12,15 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // 确保 Service Worker 和 Manifest 被正确复制
+    rollupOptions: {
+      output: {
+        // 保持 public 目录中的文件结构
+        assetFileNames: 'assets/[name].[ext]',
+      },
+    },
+  },
+  // PWA 相关：确保 public 目录文件可访问
+  publicDir: 'public',
 })
